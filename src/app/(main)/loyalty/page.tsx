@@ -18,7 +18,7 @@ import {
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const CFG = {
-    MIN_ORDER:      130,
+    MIN_ORDER:      189,
     REF_REFERRER:   50,
     REF_REFEREE:    25,
     PT_VALUE:       0.5,
