@@ -236,11 +236,11 @@ export async function POST(req: NextRequest) {
 
         // ── Execute ────────────────────────────────────────────────────────
         const discountRupees = await redeemPoints({
-            userId,
-            points:  pointsToRedeem,
-            orderId,
-            note:    `Redeemed ${pointsToRedeem} pts → ₹${pointsToRupees(pointsToRedeem)} discount`,
-        });
+    userId,
+    points:  pointsToRedeem,
+    orderMongoId: orderId,   // ✅ FIXED
+    note: `Redeemed ${pointsToRedeem} pts → ₹${pointsToRupees(pointsToRedeem)} discount`,
+});
 
         return NextResponse.json({
             success:        true,
