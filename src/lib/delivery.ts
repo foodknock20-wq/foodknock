@@ -1,8 +1,8 @@
 // src/lib/delivery.ts
 // Flat-rate delivery logic — no Google Maps, no geocoding.
 
-export const MIN_ORDER_AMOUNT  = 130;
-export const FREE_DELIVERY_AT  = 300;
+export const MIN_ORDER_AMOUNT  = 189;
+export const FREE_DELIVERY_AT  = 339;
 export const FLAT_DELIVERY_FEE = 29;
 export const PLATFORM_FEE      = 1;
 
