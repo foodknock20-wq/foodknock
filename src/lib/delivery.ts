@@ -3,8 +3,8 @@
 
 export const MIN_ORDER_AMOUNT  = 130;
 export const FREE_DELIVERY_AT  = 300;
-export const FLAT_DELIVERY_FEE = 20;
-export const PLATFORM_FEE      = 10;
+export const FLAT_DELIVERY_FEE = 29;
+export const PLATFORM_FEE      = 1;
 
 /**
  * Returns the delivery fee in ₹.
