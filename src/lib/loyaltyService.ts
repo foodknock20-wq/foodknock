@@ -38,7 +38,7 @@ export const LOYALTY_CONFIG = {
     /** 1 point per ₹10 spent */
     POINTS_PER_RUPEE:     0.1,
     /** Orders below this total earn no points */
-    MIN_ORDER_FOR_POINTS: 130,
+    MIN_ORDER_FOR_POINTS: 189,
     /** Points awarded to the referrer */
     REFERRER_REWARD:      50,
     /** Points awarded to the new (referred) user */
