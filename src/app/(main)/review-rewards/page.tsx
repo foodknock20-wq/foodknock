@@ -43,7 +43,7 @@ const STEPS = [
     { emoji: "📱", title: "Post a Reel",   desc: "Upload a genuine video review of FoodKnock on Instagram."                   },
     { emoji: "🔗", title: "Submit Link",   desc: "Paste your reel link below and hit Submit."                                   },
     { emoji: "✅", title: "Get Verified",  desc: "Our team reviews it within 24 hrs — no fake reviews, only real ones."         },
-    { emoji: "🍔", title: "Free Item!",   desc: "Approved? Your next order (₹150+) gets a FREE Burger automatically added."     },
+    { emoji: "🍔", title: "Free Item!",   desc: "Approved? Your next order (₹190+) gets a FREE Burger automatically added."     },
 ];
 
 // ─── Status card ─────────────────────────────────────────────────────────────
