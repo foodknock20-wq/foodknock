@@ -89,7 +89,7 @@ export default async function MenuPage() {
             )}
 
             {/* ── Instagram Review Reward marketing banner ── */}
-            <Link href="/review-reward"
+            <Link href="/review-rewards"
                   className="group block w-full border-b border-pink-200/70 bg-gradient-to-r from-pink-50 via-rose-50 to-orange-50 transition-colors hover:from-pink-100 hover:via-rose-100 hover:to-orange-100">
                 <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 md:px-8">
                     <div className="flex items-center gap-3">
