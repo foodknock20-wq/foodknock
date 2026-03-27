@@ -6,8 +6,7 @@ import "./globals.css";
 import { Toaster }        from "react-hot-toast";
 import { Suspense }       from "react";
 import NotificationPrompt from "@/components/shared/NotificationPrompt";
-import { Analytics } from "@vercel/analytics/react";
-
+import { Analytics } from "@vercel/analytics/next";
 
 const BASE_URL = "https://www.foodknock.com";
 
