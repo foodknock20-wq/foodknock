@@ -1,0 +1,1 @@
+export const COD_MAX_ORDER_AMOUNT = 359;
