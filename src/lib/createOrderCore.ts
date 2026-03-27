@@ -7,13 +7,18 @@
 //   • /api/orders/cod        (Cash on Delivery)
 //
 // Handles:
-//   1. Duplicate-payment guard  (razorpayPaymentId uniqueness, COD uses null)
+//   1. Duplicate-payment guard  (razorpayPaymentId uniqueness, COD omits field)
 //   2. Stock validation + decrement
 //   3. Review Reward check
 //   4. First-free-delivery check + consume
 //   5. Loyalty point redemption (server-validated, ObjectId-safe)
 //   6. Order document creation
 //   7. Telegram admin notification
+//
+// FIX: razorpayPaymentId / razorpayOrderId are NEVER written as null.
+//      For COD orders these fields are completely omitted from orderData so
+//      MongoDB's sparse-unique index on razorpayPaymentId never sees a null
+//      and E11000 duplicate-key errors cannot occur.
 
 import mongoose from "mongoose";
 import crypto   from "crypto";
@@ -121,19 +126,19 @@ export interface CreateOrderInput {
         image?:    string;
     }>;
     linkedUserId:            string | null;
-    // Razorpay-specific (null for COD)
-    razorpayOrderId?:        string | null;
-    razorpayPaymentId?:      string | null;
-    razorpaySignature?:      string | null;
-    // Loyalty — server-validated point count from create-order (0 for COD if not used)
+    // Razorpay-specific — intentionally optional (never default to null)
+    razorpayOrderId?:        string;
+    razorpayPaymentId?:      string;
+    razorpaySignature?:      string;
+    // Loyalty — server-validated point count (0 when not used)
     validatedRedeemPoints?:  number;
 }
 
 export interface CreateOrderResult {
-    orderId:               string;
-    order:                 unknown;
-    reviewRewardApplied:   boolean;
-    loyaltyPointsRedeemed: number;
+    orderId:                    string;
+    order:                      unknown;
+    reviewRewardApplied:        boolean;
+    loyaltyPointsRedeemed:      number;
     isFirstDeliveryFreeApplied: boolean;
 }
 
@@ -154,20 +159,23 @@ export async function createOrderCore(
         orderType,
         items: rawItems,
         linkedUserId,
-        razorpayOrderId   = null,
-        razorpayPaymentId = null,
+        // ⚠️  NO default = null here — keep these as undefined when absent
+        //     so they are never written to the DB as null.
+        razorpayOrderId,
+        razorpayPaymentId,
         validatedRedeemPoints: clientValidatedPoints = 0,
     } = input;
 
     // ── Duplicate guard (Razorpay only) ───────────────────────────────────
+    // Only run when we actually have a payment ID (never for COD).
     if (paymentMethod === "razorpay" && razorpayPaymentId) {
         const existing = await Order.findOne({ razorpayPaymentId }).lean();
         if (existing) {
             return {
-                orderId:               (existing as any).orderId,
-                order:                 existing,
-                reviewRewardApplied:   false,
-                loyaltyPointsRedeemed: 0,
+                orderId:                    (existing as any).orderId,
+                order:                      existing,
+                reviewRewardApplied:        false,
+                loyaltyPointsRedeemed:      0,
                 isFirstDeliveryFreeApplied: (existing as any).isFirstDeliveryFreeApplied ?? false,
             };
         }
@@ -257,10 +265,10 @@ export async function createOrderCore(
     const grossTotal = subtotal + deliveryFee + PLATFORM_FEE;
 
     if (paymentMethod === "cod" && grossTotal >= COD_MAX_ORDER_AMOUNT) {
-    throw Object.assign(
-        new Error(`COD not available above ₹${COD_MAX_ORDER_AMOUNT}`),
-        { status: 400 }
-    );
+        throw Object.assign(
+            new Error(`COD not available above ₹${COD_MAX_ORDER_AMOUNT}`),
+            { status: 400 }
+        );
     }
 
     // ── Loyalty: security cap ─────────────────────────────────────────────
@@ -285,43 +293,53 @@ export async function createOrderCore(
     // ── Total ─────────────────────────────────────────────────────────────
     const totalAmount = Math.max(1, grossTotal - redeemedAmount);
 
-    // ── Create Order ──────────────────────────────────────────────────────
+    // ── Build orderData — razorpay fields added ONLY when present ─────────
+    //
+    // CRITICAL: razorpayPaymentId has a unique sparse index in MongoDB.
+    // A sparse index ignores documents where the field is absent (undefined),
+    // but it DOES index null values — so multiple nulls trigger E11000.
+    // Solution: never include these keys unless they hold a real string value.
+    //
     const newOrderId = generateOrderId();
 
-    const orderData: any = {
-    orderId:      newOrderId,
-    customerName: customerName?.trim(),
-    phone:        phone?.trim(),
-    address:      orderType === "delivery" ? address?.trim() : "Pickup",
-    landmark,
-    note,
-    orderType,
-    items:        finalItems,
-    deliveryFee,
-    platformFee:  PLATFORM_FEE,
-    totalAmount,
-    redeemedPoints: verifiedRedeemPoints,
-    redeemedAmount,
-    status:       "received",
-    paymentMethod,
-    isFirstDeliveryFreeApplied: firstDeliveryFree,
-    ...(linkedUserId ? { user: linkedUserId } : {}),
-};
+    const orderData: Record<string, unknown> = {
+        orderId:      newOrderId,
+        customerName: customerName?.trim(),
+        phone:        phone?.trim(),
+        address:      orderType === "delivery" ? address?.trim() : "Pickup",
+        landmark,
+        note,
+        orderType,
+        items:        finalItems,
+        deliveryFee,
+        platformFee:  PLATFORM_FEE,
+        totalAmount,
+        redeemedPoints: verifiedRedeemPoints,
+        redeemedAmount,
+        status:       "received",
+        paymentMethod,
+        isFirstDeliveryFreeApplied: firstDeliveryFree,
+        ...(linkedUserId ? { user: linkedUserId } : {}),
+    };
 
-// ✅ ONLY FOR RAZORPAY
-if (paymentMethod === "razorpay") {
-    orderData.razorpayOrderId   = razorpayOrderId;
-    orderData.razorpayPaymentId = razorpayPaymentId;
-}
+    // ✅ Razorpay fields: only written when paymentMethod is razorpay AND the
+    //    values are non-empty strings. This guarantees the field is either a
+    //    real unique string or completely absent — never null.
+    if (paymentMethod === "razorpay" && razorpayPaymentId) {
+        orderData.razorpayPaymentId = razorpayPaymentId;
+        // razorpayOrderId is useful for support but not indexed; still guard it.
+        if (razorpayOrderId) {
+            orderData.razorpayOrderId = razorpayOrderId;
+        }
+    }
 
-// 🔥 FORCE SAFETY (VERY IMPORTANT)
-if (paymentMethod === "cod") {
-    delete orderData.razorpayPaymentId;
-    delete orderData.razorpayOrderId;
-}
+    // 🛡️  Belt-and-suspenders safety: if either field somehow crept in as a
+    //     falsy value (null / undefined / ""), remove it entirely so MongoDB
+    //     never receives it.
+    if (!orderData.razorpayPaymentId) delete orderData.razorpayPaymentId;
+    if (!orderData.razorpayOrderId)   delete orderData.razorpayOrderId;
 
-
-const order = await Order.create(orderData);
+    const order = await Order.create(orderData);
 
     // ── Consume first-free-delivery ───────────────────────────────────────
     if (firstDeliveryFree) {
@@ -336,7 +354,7 @@ const order = await Order.create(orderData);
             await redeemPoints({
                 userId:       linkedUserId,
                 points:       pointsToDeduct,
-                orderMongoId: String((order as any)._id), // ← _id, NOT orderId
+                orderMongoId: String((order as any)._id), // ← _id, NOT orderId string
                 note:         `Redeemed ${pointsToDeduct} pts at checkout — ₹${redeemedAmount} discount`,
             });
             console.log(
@@ -372,10 +390,10 @@ const order = await Order.create(orderData);
     }).catch(console.error);
 
     return {
-        orderId:               newOrderId,
+        orderId:                    newOrderId,
         order,
         reviewRewardApplied,
-        loyaltyPointsRedeemed: pointsToDeduct,
+        loyaltyPointsRedeemed:      pointsToDeduct,
         isFirstDeliveryFreeApplied: firstDeliveryFree,
     };
 }
