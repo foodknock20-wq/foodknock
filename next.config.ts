@@ -9,7 +9,10 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "res.cloudinary.com", pathname: "/**" },
       { protocol: "https", hostname: "images.unsplash.com", pathname: "/**" }
     ],
-    formats: ["image/avif", "image/webp"]
+
+    formats: ["image/avif", "image/webp"],
+
+    qualities: [65, 70, 75],
   },
 
   compress: true,
