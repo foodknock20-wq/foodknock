@@ -1,5 +1,7 @@
 // src/models/Order.ts
-// FIXED: Added redeemedPoints + redeemedAmount for loyalty audit trail
+// FIXED: razorpayPaymentId / razorpayOrderId have NO default: null
+//        so the fields are never written to MongoDB unless explicitly set.
+//        This prevents E11000 duplicate-key errors on the sparse unique index.
 
 import { Schema, model, models } from "mongoose";
 
@@ -53,8 +55,6 @@ const OrderSchema = new Schema(
         platformFee: { type: Number, default: 0, min: 0 },
 
         // ── Loyalty redemption ─────────────────────────────────────────────
-        // Written by verify route. Used as audit trail.
-        // redeemPoints() is called with order._id (ObjectId), NOT orderId string.
         redeemedPoints: { type: Number, default: 0, min: 0 },
         redeemedAmount: { type: Number, default: 0, min: 0 },
 
@@ -72,17 +72,22 @@ const OrderSchema = new Schema(
             default: "cod",
         },
 
+        // ── Razorpay fields ────────────────────────────────────────────────
+        // NO `default: null` on either field.
+        // When absent the key is simply not stored, which means the sparse
+        // unique index on razorpayPaymentId correctly ignores those documents.
+        // Multiple COD orders can coexist without any index collision.
         razorpayOrderId: {
-            type:    String,
-            default: null,
-            index:   true,
+            type:  String,
+            index: true,
+            // intentionally no default
         },
 
         razorpayPaymentId: {
-            type:    String,
-            unique:  true,
-            sparse:  true,
-            default: null,
+            type:   String,
+            unique: true,
+            sparse: true,
+            // intentionally no default
         },
 
         whatsappSent: {
