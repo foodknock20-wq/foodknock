@@ -140,19 +140,17 @@ export async function POST(req: Request) {
 
         // ── Delegate to shared core ───────────────────────────────────────
         const result = await createOrderCore({
-            paymentMethod:         "cod",
-            customerName,
-            phone,
-            address,
-            landmark,
-            note,
-            orderType,
-            items,
-            linkedUserId,
-            razorpayOrderId:       null,
-            razorpayPaymentId:     null,
-            validatedRedeemPoints,
-        });
+    paymentMethod: "cod",
+    customerName,
+    phone,
+    address,
+    landmark,
+    note,
+    orderType,
+    items,
+    linkedUserId,
+    validatedRedeemPoints,
+});
 
         return NextResponse.json(
             {
