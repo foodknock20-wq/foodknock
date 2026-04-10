@@ -95,7 +95,7 @@ export default function Footer() {
                                 Order Now
                                 <ChevronRight size={16} className="transition-transform group-hover:translate-x-1" />
                             </Link>
-                            <a
+                            
                                 href="mailto:foodknock20@gmail.com"
                                 className="flex items-center gap-2 rounded-2xl border-2 border-white/30 bg-white/10 px-7 py-3.5 text-sm font-bold text-white backdrop-blur-sm transition-all duration-200 hover:bg-white/20"
                             >
@@ -170,7 +170,7 @@ export default function Footer() {
                         {/* Social */}
                         <div className="mt-6 flex items-center gap-2">
                             {socialLinks.map(({ href, label, icon: Icon }) => (
-                                <a
+                                
                                     key={label}
                                     href={href}
                                     aria-label={label}
@@ -182,7 +182,7 @@ export default function Footer() {
                         </div>
 
                         {/* Website badge */}
-                        <a
+                        
                             href="https://foodknock.com"
                             target="_blank"
                             rel="noopener noreferrer"
@@ -219,8 +219,8 @@ export default function Footer() {
                         </h3>
                         <ul className="space-y-4">
                             <li>
-                                <a
-                                    href="https://maps.google.com/?q=FoodKnock"
+                                
+                                   <a href="https://maps.google.com/?q=FoodKnock"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="group flex items-start gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
@@ -237,8 +237,8 @@ export default function Footer() {
                                 </a>
                             </li>
                             <li>
-                                <a
-                                    href="mailto:foodknock20@gmail.com"
+                                
+                                    <a href="mailto:foodknock20@gmail.com"
                                     className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
                                 >
                                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
@@ -247,17 +247,17 @@ export default function Footer() {
                                     foodknock20@gmail.com
                                 </a>
                             </li>
-<li>
-    
-        href="tel:7307728292"
-        className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
-    >
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
-            📞
-        </span>
-        7307728292
-    </a>
-</li>
+                            <li>
+                                
+                                    <a href="tel:7307728292"
+                                    className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
+                                >
+                                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
+                                        📞
+                                    </span>
+                                    7307728292
+                                </a>
+                            </li>
                             <li>
                                 <div className="mt-2 rounded-2xl border border-white/8 bg-white/4 p-4">
                                     <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/25">Support Hours</p>
@@ -309,7 +309,7 @@ export default function Footer() {
                         <span className="text-white/15">·</span>
                         <Link href="/terms" className="transition-colors hover:text-orange-400">Terms of Service</Link>
                         <span className="text-white/15">·</span>
-                        <a
+                        
                             href="https://foodknock.com"
                             target="_blank"
                             rel="noopener noreferrer"
