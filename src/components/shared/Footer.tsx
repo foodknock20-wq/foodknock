@@ -247,10 +247,10 @@ export default function Footer() {
                                     foodknock20@gmail.com
                                 </a>
                             </li>
-                            <li>
-    <a
+<li>
+    
         href="tel:7307728292"
-        class="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
+        className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
     >
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
             📞
