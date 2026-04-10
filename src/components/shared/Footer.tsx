@@ -248,6 +248,17 @@ export default function Footer() {
                                 </a>
                             </li>
                             <li>
+    <a
+        href="tel:7307728292"
+        class="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
+    >
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
+            📞
+        </span>
+        7307728292
+    </a>
+</li>
+                            <li>
                                 <div className="mt-2 rounded-2xl border border-white/8 bg-white/4 p-4">
                                     <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/25">Support Hours</p>
                                     <p className="text-[13px] font-semibold text-white/50">Mon–Sat · 10 AM – 8 PM</p>
