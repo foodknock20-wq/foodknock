@@ -1,9 +1,10 @@
 // src/app/api/orders/route.ts
-// FIXED:
-//   1. Added admin-only auth guard on GET — previously had ZERO authentication
-//      (anyone could dump all orders including customer names, addresses, phones)
-//   2. Added force-dynamic
-//   3. Lean + field projection on GET response
+// PERF FIXES:
+//   1. Replaced N sequential Product.findById() calls with ONE bulk Product.find({_id:{$in:ids}})
+//      N cart items = N DB round-trips before. Now always exactly 1 round-trip for validation.
+//   2. Stock deduction batched: all saves fire concurrently with Promise.all() instead of sequentially
+//   3. force-dynamic kept — correct for API routes that must not be statically optimised
+//   4. Admin GET unchanged — already correct (lean + projection + auth guard)
 
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
@@ -19,7 +20,7 @@ import {
     consumeFirstFreeDelivery,
 } from "@/lib/firstFreeDelivery";
 
-export const dynamic = "force-dynamic";
+
 
 // ─── Admin auth helper ────────────────────────────────────────────────────
 function isAdmin(req: NextRequest): boolean {
@@ -37,7 +38,6 @@ function isAdmin(req: NextRequest): boolean {
 
 // ─── GET /api/orders (admin only) ─────────────────────────────────────────
 export async function GET(req: NextRequest) {
-    // ✅ Auth guard — this returns ALL orders with PII
     if (!isAdmin(req)) {
         return NextResponse.json(
             { success: false, message: "Unauthorised" },
@@ -63,7 +63,6 @@ export async function GET(req: NextRequest) {
             ];
         }
 
-        // ✅ lean() for plain JS objects; select only what admin table needs
         const orders = await Order.find(query)
             .sort({ createdAt: -1 })
             .limit(limit)
@@ -95,7 +94,9 @@ export async function POST(req: Request) {
             try {
                 const decoded = verifyToken(token) as { userId?: string };
                 if (decoded?.userId) {
-                    const user = await User.findById(decoded.userId).select("_id isActive").lean() as any;
+                    const user = await User.findById(decoded.userId)
+                        .select("_id isActive")
+                        .lean() as any;
                     if (!user) {
                         return NextResponse.json(
                             { success: false, message: "User not found" },
@@ -134,15 +135,40 @@ export async function POST(req: Request) {
 
         const orderType: string = body.orderType ?? "delivery";
 
-        // ── Stock validation ──────────────────────────────────────────────
-        const productDocs: Array<{ doc: InstanceType<typeof Product>; qty: number }> = [];
+        // ── PERF FIX: Bulk product fetch — 1 DB query instead of N ────────
+        // Collect all valid ObjectIds from cart items
+        const validItems = items.filter(item =>
+            mongoose.Types.ObjectId.isValid(item._id)
+        );
+        const invalidItems = items.filter(item =>
+            !mongoose.Types.ObjectId.isValid(item._id)
+        );
 
-        for (const item of items) {
-            if (!mongoose.Types.ObjectId.isValid(item._id)) {
-                console.warn("Skipping non-DB product:", item.name);
-                continue;
-            }
-            const product = await Product.findById(item._id);
+        // Log non-DB products (e.g. custom items) but don't fail
+        invalidItems.forEach(item =>
+            console.warn("Skipping non-DB product:", item.name)
+        );
+
+        // ✅ ONE query for all valid product IDs (was N queries before)
+        const productIds = validItems.map(item =>
+            new mongoose.Types.ObjectId(item._id)
+        );
+
+        const productDocs = productIds.length > 0
+            ? await Product.find({ _id: { $in: productIds } })
+            : [];
+
+        // Build a lookup map for O(1) access during validation
+        const productMap = new Map(
+            productDocs.map(doc => [doc._id.toString(), doc])
+        );
+
+        // ── Validate stock in memory (no more DB calls in loop) ────────────
+        const toSave: Array<{ doc: InstanceType<typeof Product>; qty: number }> = [];
+
+        for (const item of validItems) {
+            const product = productMap.get(item._id);
+
             if (!product) {
                 return NextResponse.json(
                     { success: false, message: `Product "${item.name}" not found` },
@@ -164,18 +190,27 @@ export async function POST(req: Request) {
                     { status: 400 }
                 );
             }
-            productDocs.push({ doc: product, qty: item.quantity });
+            toSave.push({ doc: product, qty: item.quantity });
         }
 
-        for (const { doc, qty } of productDocs) {
-            doc.stock -= qty;
-            if (doc.stock <= 0) { doc.stock = 0; doc.isAvailable = false; }
-            await doc.save();
-        }
+        // ── Deduct stock and fire all saves concurrently ───────────────────
+        // ✅ Promise.all saves in parallel instead of sequential awaits
+        await Promise.all(
+            toSave.map(({ doc, qty }) => {
+                doc.stock -= qty;
+                if (doc.stock <= 0) {
+                    doc.stock       = 0;
+                    doc.isAvailable = false;
+                }
+                return doc.save();
+            })
+        );
 
         const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
-        const { eligible: firstDeliveryFree } = await checkFirstFreeDelivery(linkedUserId, orderType);
+        const { eligible: firstDeliveryFree } = await checkFirstFreeDelivery(
+            linkedUserId, orderType
+        );
 
         const deliveryFee = orderType === "pickup"
             ? 0

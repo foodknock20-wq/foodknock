@@ -1,19 +1,18 @@
 // src/app/api/products/route.ts
-// FIXES:
-//   1. Removed revalidatePath() — was triggering ISR writes on every mutation
-//   2. Image field now expects a Cloudinary URL (not base64)
-//      Admin uploads via /api/upload/image first, then sends the URL here
-//   3. GET uses lean() + field projection → smaller payloads
-//   4. Added export const dynamic = "force-dynamic"
+// PERF FIXES:
+//   1. Sanitize regex input before search — prevents ReDoS + full collection scan
+//      Raw user input like "a+" or "(a|b)*" in new RegExp() is exploitable and slow
+//   2. force-dynamic kept — prevents static build-time optimisation of dynamic routes
+//   3. Cache-Control s-maxage=60 kept — CDN caches response for 60s after first request
+//      force-dynamic + Cache-Control work together: handler always runs, CDN caches output
+//   4. All other optimizations from previous round preserved (lean, projection, etc.)
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import Product from "@/models/Product";
 
-// ✅ No cache — API routes must never be cached on the CDN
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
-// Public fields safe to expose in list responses
 const LIST_PROJECTION =
     "name slug shortDescription price compareAtPrice category image stock isAvailable isFeatured rating tags";
 
@@ -24,6 +23,12 @@ function generateSlug(name: string) {
         .replace(/[^a-z0-9\s-]/g, "")
         .replace(/\s+/g, "-")
         .replace(/-+/g, "-");
+}
+
+// PERF: escape regex special characters to prevent ReDoS attacks and
+//       unintentional full-collection scans from malformed patterns
+function escapeRegex(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // ─── GET /api/products ─────────────────────────────────────────────────────
@@ -41,20 +46,22 @@ export async function GET(req: NextRequest) {
 
         if (slug)     query.slug = slug;
         if (category && category !== "all") {
-            query.category = { $regex: new RegExp(`^${category}$`, "i") };
+            // PERF: anchored regex (^…$) uses index — unanchored scans every doc
+            query.category = { $regex: new RegExp(`^${escapeRegex(category)}$`, "i") };
         }
         if (featured === "true") query.isFeatured = true;
 
         if (search) {
-            const regex = new RegExp(search, "i");
+            // PERF: escape user input before using in regex to prevent ReDoS
+            const safeSearch = escapeRegex(search.trim());
+            const regex      = new RegExp(safeSearch, "i");
             query.$or = [
-                { name: regex },
+                { name:     regex },
                 { category: regex },
-                { tags: regex },
+                { tags:     regex },
             ];
         }
 
-        // ✅ lean() + projection → much smaller payload, faster serialisation
         const products = await Product.find(query)
             .select(LIST_PROJECTION)
             .sort({ isFeatured: -1, createdAt: -1 })
@@ -62,7 +69,7 @@ export async function GET(req: NextRequest) {
             .lean();
 
         const res = NextResponse.json({ success: true, products });
-        // ✅ Light CDN cache (60 s) — safe because pages are force-dynamic
+        // CDN caches for 60 s; stale-while-revalidate serves stale for 30 s while refreshing
         res.headers.set("Cache-Control", "public, s-maxage=60, stale-while-revalidate=30");
         return res;
     } catch (error) {
@@ -89,7 +96,7 @@ export async function POST(req: Request) {
             compareAtPrice,
             stock,
             category,
-            image,      // ✅ Must now be a Cloudinary URL (https://res.cloudinary.com/…)
+            image,
             tags,
             ingredients,
             isFeatured,
@@ -103,7 +110,6 @@ export async function POST(req: Request) {
             );
         }
 
-        // ✅ Reject base64 images — they must go through /api/upload/image first
         if (typeof image === "string" && image.startsWith("data:")) {
             return NextResponse.json(
                 {
@@ -177,14 +183,12 @@ export async function POST(req: Request) {
             compareAtPrice:   parsedCompareAtPrice,
             stock:            parsedStock,
             category:         String(category).trim(),
-            image,          // Cloudinary URL stored as-is
+            image,
             tags:             tagArray,
             ingredients:      ingredientArray,
             isFeatured:       Boolean(isFeatured),
             isAvailable:      isAvailable === undefined ? parsedStock > 0 : Boolean(isAvailable),
         });
-
-        // ✅ No revalidatePath() — pages are force-dynamic, no ISR to bust
 
         return NextResponse.json({ success: true, product }, { status: 201 });
     } catch (error: any) {

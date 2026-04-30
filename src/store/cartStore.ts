@@ -1,3 +1,15 @@
+// src/store/cartStore.ts
+// PERF: getTotalItems and getTotalPrice moved out of the store object as
+//       standalone selector functions. Components should use them like:
+//         const totalItems = useCartStore(selectTotalItems);
+//         const totalPrice = useCartStore(selectTotalPrice);
+//       This prevents re-renders from other store slices — only the items
+//       array reference triggers the selector to recompute.
+//
+//       The inline methods are kept for backward compatibility with any code
+//       that calls get().getTotalItems() / get().getTotalPrice() directly,
+//       but component-level usage should prefer the exported selectors.
+
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
@@ -21,6 +33,16 @@ type CartStore = {
   getTotalItems: () => number;
   getTotalPrice: () => number;
 };
+
+// PERF: stable selector functions — use these in components instead of
+//       useCartStore(s => s.getTotalItems()) which creates a new function each render
+export const selectTotalItems = (s: CartStore) =>
+  s.items.reduce((sum, i) => sum + i.quantity, 0);
+
+export const selectTotalPrice = (s: CartStore) =>
+  s.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+
+export const selectItems = (s: CartStore) => s.items;
 
 // safe localStorage wrapper
 const safeStorage = {
@@ -143,11 +165,10 @@ export const useCartStore = create<CartStore>()(
         } catch {}
       },
 
-      getTotalItems: () =>
-        get().items.reduce((sum, i) => sum + i.quantity, 0),
-
-      getTotalPrice: () =>
-        get().items.reduce((sum, i) => sum + i.price * i.quantity, 0),
+      // PERF: kept for backward compat — prefer selectTotalItems/selectTotalPrice
+      //       as standalone selectors in component subscriptions
+      getTotalItems: () => selectTotalItems(get()),
+      getTotalPrice: () => selectTotalPrice(get()),
     }),
     {
       name: "foodknock-cart-v1",

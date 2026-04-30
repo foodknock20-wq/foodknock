@@ -1,4 +1,3 @@
-export const dynamic = "force-dynamic";
 
 // src/app/api/auth/me/first-delivery/route.ts
 //

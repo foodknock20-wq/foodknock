@@ -1,4 +1,3 @@
-export const dynamic = "force-dynamic";
 
 // src/app/api/auth/register/route.ts
 // Updated: generates unique referralCode + records referredBy on signup.

@@ -1,24 +1,24 @@
 "use client";
 
 // src/components/products/MenuClient.tsx
-// FoodKnock — Premium Mobile-First Menu
-// Zomato/Swiggy-inspired · Warm ember palette · Playfair headlines
-//
-// Layout:
-//   1. Hero
-//   2. CategorySlider   ← NOT sticky, scrolls with page
-//   3. Sticky bar       ← search + sort only (lean, no hang)
-//   4. TopPicksSection
-//   5. Combos section
-//   6. Per-category sections
+// WAVE 3C FINAL — SURGICAL CLEANUP
+// CHANGES vs WAVE 3B:
+//   • ComboSection rendered DIRECTLY — outer redundant combo wrapper removed
+//   • productCounts built in the SAME single-pass scan as iceCreams/thalis/combos/categoryMap
+//   • CategorySection receives `products` (pre-sorted) + `availableCount` — does ZERO internal sort/filter
+//   • No per-render style tag injections (style jsx global moved to module-level or removed)
+//   • All WAVE 3B improvements preserved
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import ProductGrid      from "./ProductGrid";
-import ComboSection     from "./ComboSection";
-import TopPicksSection  from "./TopPicksSection";
-import CategorySlider   from "./CategorySlider";
-import CategorySection  from "./CategorySection";
-import { Search, X, SlidersHorizontal, ChevronDown, Filter } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import ProductGrid from "./ProductGrid";
+import ComboSection from "./ComboSection";
+import TopPicksSection from "./TopPicksSection";
+import CategorySlider from "./CategorySlider";
+import CategorySection from "./CategorySection";
+import IceCreamSection from "./IceCreamSection";
+import ThaliSection from "./ThaliSection";
+import { Search, X } from "lucide-react";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Product = {
@@ -31,28 +31,23 @@ type Product = {
 const CATEGORY_ORDER = [
     "Combos", "Pizza", "Burger", "Sandwich", "Momos", "Pasta",
     "Noodles", "Maggi", "Chinese", "Pavbhaji", "Patties", "Fries",
-    "Snacks", "Shake", "Juice", "Coffee", "Tea", "Ice Cream",
-];
-
-const SORT_OPTIONS = [
-    { value: "default",    label: "⭐ Featured"       },
-    { value: "price_asc",  label: "Price: Low → High" },
-    { value: "price_desc", label: "Price: High → Low" },
-    { value: "name_asc",   label: "Name: A → Z"       },
-    { value: "available",  label: "Available First"    },
+    "Snacks", "Shake", "Juice", "Coffee", "Tea", "Ice Cream", "Thali",
 ];
 
 const HERO_STATS = [
-    { value: "900+",   label: "Happy Orders", color: "#f97316" },
-    { value: "4.9★",   label: "Avg Rating",   color: "#d97706" },
-    { value: "15 min", label: "Avg Delivery", color: "#16a34a" },
+    { value: "900+", label: "Happy Orders", color: "#f97316" },
+    { value: "4.9★", label: "Avg Rating", color: "#d97706" },
+    { value: "40 min", label: "Avg Delivery", color: "#16a34a" },
 ];
+
+// PERF: excluded from generic category sections — checked by lowercase string
+const SECTION_EXCLUDED = new Set(["all", "combos", "ice cream", "thali"]);
 
 const normalize = (cat: string) =>
     cat.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 
 function sortCats(cats: string[]): string[] {
-    const noAll   = cats.filter(c => c !== "All");
+    const noAll = cats.filter(c => c !== "All");
     const ordered = CATEGORY_ORDER.filter(o =>
         noAll.some(c => c.toLowerCase() === o.toLowerCase())
     );
@@ -60,6 +55,24 @@ function sortCats(cats: string[]): string[] {
         .filter(c => !CATEGORY_ORDER.some(o => o.toLowerCase() === c.toLowerCase()))
         .sort();
     return ["All", ...ordered, ...rest];
+}
+
+// PERF: pure top-picks filter — lives outside component, called once in useMemo
+function computeTopPicks(products: Product[]): Product[] {
+    const result: Product[] = [];
+    for (const p of products) {
+        if (result.length >= 12) break;
+        if (
+            p.isFeatured ||
+            p.tags?.some(t => {
+                const tl = t.toLowerCase().trim();
+                return tl === "top-picks" || tl === "top picks";
+            })
+        ) {
+            result.push(p);
+        }
+    }
+    return result;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -70,46 +83,117 @@ export default function MenuClient({
     products: Product[];
     shopOpen?: boolean;
 }) {
-    const [search,   setSearch]   = useState("");
+    const [search, setSearch] = useState("");
     const [category, setCategory] = useState("All");
-    const [sort,     setSort]     = useState("default");
-    const [sortOpen, setSortOpen] = useState(false);
-    const [showTop,  setShowTop]  = useState(false);
+    const [showTop, setShowTop] = useState(false);
 
     const stickyRef = useRef<HTMLDivElement>(null);
+    const searchParams = useSearchParams();
 
     useEffect(() => {
-        const fn = () => setShowTop(window.scrollY > 600);
+        const cat = searchParams.get("category");
+        if (!cat) return;
+        const normalized = cat.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+        setCategory(normalized);
+        setSearch("");
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                const sectionId = `section-${normalized.toLowerCase().replace(/\s+/g, "-")}`;
+                const el = document.getElementById(sectionId);
+                if (el) {
+                    const top = el.getBoundingClientRect().top + window.scrollY - 80;
+                    window.scrollTo({ top, behavior: "smooth" });
+                }
+            });
+        });
+    }, [searchParams]);
+
+    useEffect(() => {
+        let ticking = false;
+        const fn = () => {
+            if (!ticking) {
+                requestAnimationFrame(() => {
+                    setShowTop(window.scrollY > 600);
+                    ticking = false;
+                });
+                ticking = true;
+            }
+        };
         window.addEventListener("scroll", fn, { passive: true });
         return () => window.removeEventListener("scroll", fn);
     }, []);
 
-    // ── Derived data ────────────────────────────────────────────────────
-    const categories = useMemo(() => {
-        const unique = Array.from(new Set(products.map(p => normalize(p.category))));
-        return sortCats(unique);
-    }, [products]);
+    // ── WAVE 3C: SINGLE-PASS SCAN ──────────────────────────────────────────
+    // One loop fills: iceCreams, thalis, combos, categoryMap, productCounts, uniqueCatSet
+    // No secondary filter/forEach for productCounts — built inline.
+    const { iceCreams, thalis, combos, topPicks, categoryMap, productCounts, categories } =
+        useMemo(() => {
+            const iceCreams: Product[] = [];
+            const thalis: Product[] = [];
+            const combos: Product[] = [];
+            const categoryMap = new Map<string, { available: Product[]; unavailable: Product[] }>();
+            // productCounts: category → total count (for CategorySlider badges)
+            const rawCounts: Record<string, number> = { All: products.length };
+            const uniqueCatSet = new Set<string>();
 
-    const productCounts = useMemo(() => {
-        const counts: Record<string, number> = { All: products.length };
-        categories.forEach(cat => {
-            if (cat !== "All")
-                counts[cat] = products.filter(p => normalize(p.category) === cat).length;
-        });
-        return counts;
-    }, [products, categories]);
+            for (const p of products) {
+                const norm = normalize(p.category);
+                const normLower = norm.toLowerCase();
+                const avail = p.isAvailable && p.stock > 0;
 
-    const combos = useMemo(
-        () => products.filter(p => normalize(p.category) === "Combos"),
-        [products]
-    );
+                // Track unique categories for slider (all products)
+                uniqueCatSet.add(norm);
+                rawCounts[norm] = (rawCounts[norm] ?? 0) + 1;
 
+                if (normLower === "ice cream") { iceCreams.push(p); continue; }
+                if (normLower === "thali") { thalis.push(p); continue; }
+                if (normLower === "combos") { combos.push(p); continue; }
+
+                // Generic category sections bucket (excludes ice cream / thali / combos)
+                if (!SECTION_EXCLUDED.has(normLower)) {
+                    let bucket = categoryMap.get(norm);
+                    if (!bucket) { bucket = { available: [], unavailable: [] }; categoryMap.set(norm, bucket); }
+                    if (avail) bucket.available.push(p);
+                    else bucket.unavailable.push(p);
+                }
+            }
+
+            const topPicks = computeTopPicks(products);
+            const categories = sortCats(Array.from(uniqueCatSet));
+
+            return { iceCreams, thalis, combos, topPicks, categoryMap, productCounts: rawCounts, categories };
+        }, [products]);
+
+    // WAVE 3B: precomputed sorted thalis for ThaliSection (available first)
+    const sortedThalis = useMemo(() => {
+        const av = thalis.filter(p => p.isAvailable && p.stock > 0);
+        const un = thalis.filter(p => !p.isAvailable || p.stock <= 0);
+        return { items: [...av, ...un], availableCount: av.length };
+    }, [thalis]);
+
+    // WAVE 3B: precomputed sorted ice creams for IceCreamSection
+    const sortedIceCreams = useMemo(() => {
+        const av = iceCreams.filter(p => p.isAvailable && p.stock > 0);
+        const un = iceCreams.filter(p => !p.isAvailable || p.stock <= 0);
+        return [...av, ...un];
+    }, [iceCreams]);
+
+    // WAVE 3C: categorySections — CategorySection receives pre-sorted array + availableCount
+    // CategorySection does ZERO internal filter/sort work
     const categorySections = useMemo(() => {
         return categories
-            .filter(c => c !== "All" && c.toLowerCase() !== "combos")
-            .map(cat => ({ cat, products: products.filter(p => normalize(p.category) === cat) }))
-            .filter(s => s.products.length > 0);
-    }, [categories, products]);
+            .filter(c => !SECTION_EXCLUDED.has(c.toLowerCase()))
+            .map(cat => {
+                const bucket = categoryMap.get(cat);
+                if (!bucket) return null;
+                return {
+                    cat,
+                    products: [...bucket.available, ...bucket.unavailable],
+                    availableCount: bucket.available.length,
+                };
+            })
+            .filter((s): s is NonNullable<typeof s> => s !== null && s.products.length > 0);
+    }, [categories, categoryMap]);
 
     const filteredProducts = useMemo(() => {
         let list = [...products];
@@ -125,19 +209,16 @@ export default function MenuClient({
         }
         const av = list.filter(p => p.isAvailable && p.stock > 0);
         const un = list.filter(p => !p.isAvailable || p.stock <= 0);
-        let sorted = [...av, ...un];
-        switch (sort) {
-            case "price_asc":  sorted.sort((a, b) => a.price - b.price); break;
-            case "price_desc": sorted.sort((a, b) => b.price - a.price); break;
-            case "name_asc":   sorted.sort((a, b) => a.name.localeCompare(b.name)); break;
-        }
-        if (category !== "All" && category.toLowerCase() !== "combos")
-            sorted = sorted.filter(p => normalize(p.category) !== "Combos");
+        const sorted = [...av, ...un];
+        if (category !== "All" && !["combos", "ice cream", "thali"].includes(category.toLowerCase()))
+            return sorted.filter(p => !["combos", "ice cream", "thali"].includes(normalize(p.category).toLowerCase()));
         return sorted;
-    }, [products, category, search, sort]);
+    }, [products, category, search]);
 
-    const isBrowse  = !search.trim() && category === "All";
-    const sortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label ?? "Sort";
+    const isBrowse = useMemo(
+        () => !search.trim() && category === "All",
+        [search, category]
+    );
 
     const handleCategorySelect = useCallback((cat: string) => {
         setCategory(cat);
@@ -147,9 +228,11 @@ export default function MenuClient({
         });
     }, []);
 
-    const resetAll = useCallback(() => {
-        setSearch(""); setCategory("All"); setSort("default");
-    }, []);
+    const resetAll = useCallback(() => { setSearch(""); setCategory("All"); }, []);
+    const clearSearch = useCallback(() => setSearch(""), []);
+    const handleSearchChange = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value), []
+    );
 
     return (
         <main className="min-h-screen" style={{ background: "#FFFBF5" }}>
@@ -195,10 +278,10 @@ export default function MenuClient({
                             </p>
                             <div className="mt-3.5 flex flex-wrap gap-1.5">
                                 {[
-                                    { icon: "🔥", label: "Made Fresh",        cls: "bg-orange-50 border-orange-200 text-orange-700"  },
-                                    { icon: "⚡", label: "Fast Delivery",     cls: "bg-amber-50  border-amber-200  text-amber-700"   },
-                                    { icon: "🌿", label: "Fresh Ingredients", cls: "bg-green-50  border-green-200  text-green-700"   },
-                                    { icon: "⭐", label: "4.9★ Rated",        cls: "bg-yellow-50 border-yellow-200 text-yellow-700"  },
+                                    { icon: "🔥", label: "Made Fresh", cls: "bg-orange-50 border-orange-200 text-orange-700" },
+                                    { icon: "⚡", label: "Fast Delivery", cls: "bg-amber-50  border-amber-200  text-amber-700" },
+                                    { icon: "🌿", label: "Fresh Ingredients", cls: "bg-green-50  border-green-200  text-green-700" },
+                                    { icon: "⭐", label: "4.9★ Rated", cls: "bg-yellow-50 border-yellow-200 text-yellow-700" },
                                 ].map(b => (
                                     <span key={b.label} className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10.5px] font-bold ${b.cls}`}>
                                         {b.icon} {b.label}
@@ -236,7 +319,7 @@ export default function MenuClient({
             </section>
 
             {/* ───────────────────────────────────────
-                2. CATEGORY IMAGE SLIDER — NOT sticky
+                2. CATEGORY IMAGE SLIDER
             ─────────────────────────────────────── */}
             <CategorySlider
                 categories={categories}
@@ -246,43 +329,36 @@ export default function MenuClient({
             />
 
             {/* ───────────────────────────────────────
-                3. STICKY BAR — search + sort only
-                   Lean → no layout shift, no hang
+                3. STICKY BAR — search only
             ─────────────────────────────────────── */}
             <div
                 ref={stickyRef}
                 className="sticky top-0 z-30 border-b border-stone-100/80"
                 style={{
-                    background:           "rgba(255,251,245,0.96)",
-                    backdropFilter:       "blur(18px)",
+                    background: "rgba(255,251,245,0.96)",
+                    backdropFilter: "blur(18px)",
                     WebkitBackdropFilter: "blur(18px)",
-                    boxShadow:            "0 1px 16px rgba(249,115,22,0.06)",
+                    boxShadow: "0 1px 16px rgba(249,115,22,0.06)",
                 }}>
                 <div className="mx-auto max-w-7xl px-3 py-2.5 md:px-8">
                     <div className="flex items-center gap-2">
-
-                        {/* Search */}
                         <div className="relative flex-1">
                             <Search size={14} strokeWidth={2.5}
                                 className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-400" />
                             <input
                                 type="text"
                                 value={search}
-                                onChange={e => setSearch(e.target.value)}
+                                onChange={handleSearchChange}
                                 placeholder="Search burgers, pizza, momos…"
                                 className="w-full rounded-2xl border border-stone-200 bg-white py-2.5 pl-9 pr-8 text-[13px] text-stone-700 placeholder:text-stone-400 shadow-sm transition-all focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
                             />
                             {search && (
-                                <button onClick={() => setSearch("")}
+                                <button onClick={clearSearch}
                                     className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full bg-stone-100 p-0.5 text-stone-400 transition-colors hover:bg-orange-100 hover:text-orange-500">
                                     <X size={12} strokeWidth={3} />
                                 </button>
                             )}
                         </div>
-
-                        
-
-                        {/* Count — desktop */}
                         <div className="hidden shrink-0 items-center gap-1 rounded-2xl border border-orange-100 bg-orange-50 px-3 py-2 md:flex">
                             <span className="text-sm font-black text-orange-600">
                                 {isBrowse ? products.length : filteredProducts.length}
@@ -294,60 +370,53 @@ export default function MenuClient({
             </div>
 
             {/* ───────────────────────────────────────
-                4–6. CONTENT
+                4–8. CONTENT
             ─────────────────────────────────────── */}
             {isBrowse ? (
                 <>
-                    <TopPicksSection products={products} />
-
-                    {/* Combos */}
-                    {combos.length > 0 && (
-                        <section className="relative overflow-hidden">
-                            <div className="absolute inset-0"
-                                style={{ background: "linear-gradient(160deg,#fff1f2 0%,#fff7ed 40%,#fef3c7 100%)" }} />
-                            <div className="pointer-events-none absolute inset-0 opacity-[0.04]"
-                                style={{ backgroundImage: "radial-gradient(circle,#b45309 1px,transparent 1px)", backgroundSize: "18px 18px" }} />
-
-                            <div className="relative mx-auto max-w-7xl px-4 py-7 md:px-8 md:py-10">
-                                <div className="mb-5 flex items-end justify-between gap-3">
-                                    <div>
-                                        <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-3 py-1 shadow-sm">
-                                            <span className="text-[13px]">🔥</span>
-                                            <span className="text-[10px] font-black uppercase tracking-[0.22em] text-rose-600">Best Value</span>
-                                        </div>
-                                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl"
-                                            style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
-                                            <span style={{
-                                                background: "linear-gradient(135deg,#dc2626,#ea580c,#d97706)",
-                                                WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                                            }}>FoodKnock</span>{" "}Combos 🤩
-                                        </h2>
-                                        <p className="mt-1 text-[12px] text-stone-500">Handpicked bundles — more food, better value.</p>
-                                    </div>
-                                    <button onClick={() => handleCategorySelect("Combos")}
-                                        className="flex shrink-0 items-center gap-1.5 rounded-full border border-rose-200 bg-white px-3.5 py-2 text-[12px] font-black text-rose-600 shadow-sm transition-all hover:bg-rose-50">
-                                        View All
-                                    </button>
-                                </div>
-                                <ComboSection combos={combos} onViewAll={() => handleCategorySelect("Combos")} />
-                            </div>
-                        </section>
+                    {sortedIceCreams.length > 0 && (
+                        <div id="section-ice-cream">
+                            <IceCreamSection products={sortedIceCreams} />
+                        </div>
                     )}
 
-                    {/* Per-category sections — pass sectionIndex for image priority */}
+                    {sortedThalis.items.length > 0 && (
+                        <div id="section-thali">
+                            <ThaliSection
+                                products={sortedThalis.items}
+                                availableCount={sortedThalis.availableCount}
+                                onViewAll={handleCategorySelect}
+                            />
+                        </div>
+                    )}
+
+                    <TopPicksSection topPicks={topPicks} />
+
+                    {/* WAVE 3C: ComboSection rendered DIRECTLY — no outer wrapper section
+                        ComboSection owns its complete section UI including dark bg, headings, paddings.
+                        The previous redundant outer <section> wrapper has been removed entirely. */}
+                    {combos.length > 0 && (
+                        <ComboSection
+                            combos={combos}
+                            onViewAll={() => handleCategorySelect("Combos")}
+                        />
+                    )}
+
+                    {/* WAVE 3C: CategorySection receives pre-sorted products + precomputed availableCount
+                        — does zero internal filter/sort work */}
                     {categorySections.map((section, i) => (
                         <CategorySection
                             key={section.cat}
                             category={section.cat}
                             products={section.products}
+                            availableCount={section.availableCount}
                             onViewAll={handleCategorySelect}
-                            isFirst={i === 0 && combos.length === 0}
+                            isFirst={i === 0 && combos.length === 0 && iceCreams.length === 0 && thalis.length === 0}
                             sectionIndex={i}
                         />
                     ))}
                 </>
             ) : (
-                /* Search / filter mode */
                 <section className="mx-auto max-w-7xl px-4 py-7 md:px-8 md:py-10">
                     <div className="mb-5 flex items-center gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-orange-100 bg-orange-50 text-xl">
@@ -367,25 +436,23 @@ export default function MenuClient({
                             <span className="text-[10px] font-bold text-stone-400">{search.trim() ? "found" : "items"}</span>
                         </div>
                     </div>
-
                     <button onClick={resetAll}
                         className="mb-5 inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-4 py-1.5 text-[12px] font-bold text-stone-500 shadow-sm transition-all hover:border-orange-300 hover:text-orange-600">
                         <X size={11} strokeWidth={2.5} />
                         Clear &amp; browse all
                     </button>
-
                     <ProductGrid products={filteredProducts} onReset={resetAll} hasFilters />
                 </section>
             )}
 
-            {/* Back to top */}
+            {/* Back to top — desktop only */}
             <button
                 onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
                 aria-label="Back to top"
-                className={`fixed bottom-6 right-5 z-50 flex h-11 w-11 items-center justify-center rounded-full shadow-xl shadow-orange-300/40 transition-all duration-300 hover:scale-110 active:scale-95 md:bottom-8 md:right-8 ${
-                    showTop ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"
-                }`}
-                style={{ background: "linear-gradient(135deg,#f97316,#ef4444)" }}>
+                className={`fixed bottom-8 right-8 z-50 hidden h-11 w-11 items-center justify-center rounded-full shadow-xl shadow-orange-300/40 transition-all duration-300 hover:scale-110 active:scale-95 lg:flex ${showTop ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-4 opacity-0"
+                    }`}
+                style={{ background: "linear-gradient(135deg,#f97316,#ef4444)" }}
+            >
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
                     <path d="M9 14V4M4 9l5-5 5 5" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>

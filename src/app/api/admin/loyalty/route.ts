@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 // src/app/api/admin/loyalty/route.ts
 // Admin-only loyalty management.
-// GET  — paginated list of users with loyalty balances
+// GET  — paginated list of users with loyalty balances + TRUE GLOBAL analytics
 // POST — manual credit or debit for a specific user
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,6 +13,10 @@ import LoyaltyLedger  from "@/models/LoyaltyLedger";
 import Order           from "@/models/Order";
 import { verifyToken } from "@/lib/auth";
 import { awardPoints } from "@/lib/loyaltyService";
+
+// ── Points → INR conversion ratio ─────────────────────────────────────────
+// 1 loyalty point ≈ ₹0.50 discount liability
+const POINTS_TO_INR = 0.5;
 
 // ── Admin guard ────────────────────────────────────────────────────────────
 function isAdmin(req: NextRequest): boolean {
@@ -27,6 +31,16 @@ function isAdmin(req: NextRequest): boolean {
         return false;
     }
 }
+
+// ── Global analytics type (returned alongside paginated users) ─────────────
+type GlobalAnalytics = {
+    totalUsers:   number;
+    totalPoints:  number;
+    users100plus: number;
+    usersZero:    number;
+    avgBalance:   number;
+    liabilityINR: number;
+};
 
 // ── GET /api/admin/loyalty ─────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -48,15 +62,96 @@ export async function GET(req: NextRequest) {
             filter.$or = [{ name: re }, { email: re }, { phone: re }];
         }
 
-        const [users, total] = await Promise.all([
+        // ── Run paginated user fetch, total count, AND global analytics
+        //    aggregation in parallel — one round-trip to Mongo, no JS heap abuse.
+        //
+        // The analytics aggregation always runs against ALL role=user documents
+        // (no search filter, no skip/limit) so the strip reflects the true
+        // database-wide state regardless of what page or query the admin is on.
+        //
+        // loyaltyPoints can be null/undefined on pre-loyalty-system documents,
+        // so we treat null / missing / <= 0 as zero-balance with $ifNull.
+
+        const [users, total, analyticsAgg] = await Promise.all([
+            // ① Paginated user list (respects search filter)
             User.find(filter)
                 .select("_id name email phone loyaltyPoints referralCode deliveredOrderCount createdAt")
                 .sort({ loyaltyPoints: -1 })
                 .skip((page - 1) * limit)
                 .limit(limit)
                 .lean(),
+
+            // ② Total count matching current search filter (for pagination)
             User.countDocuments(filter),
+
+            // ③ True global analytics — always ALL role=user, never filtered/paginated
+            User.aggregate<{
+                totalUsers:   number;
+                totalPoints:  number;
+                users100plus: number;
+                usersZero:    number;
+            }>([
+                { $match: { role: "user" } },
+                {
+                    $group: {
+                        _id: null,
+                        totalUsers: { $sum: 1 },
+                        totalPoints: {
+                            $sum: { $ifNull: ["$loyaltyPoints", 0] },
+                        },
+                        users100plus: {
+                            $sum: {
+                                $cond: [
+                                    { $gte: [{ $ifNull: ["$loyaltyPoints", 0] }, 100] },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                        usersZero: {
+                            $sum: {
+                                $cond: [
+                                    { $lte: [{ $ifNull: ["$loyaltyPoints", 0] }, 0] },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                    },
+                },
+                {
+                    $project: {
+                        _id:         0,
+                        totalUsers:  1,
+                        totalPoints: 1,
+                        users100plus: 1,
+                        usersZero:   1,
+                    },
+                },
+            ]),
         ]);
+
+        // ── Derive final analytics from aggregation result ─────────────────
+        const agg = analyticsAgg[0];
+        const analytics: GlobalAnalytics = agg
+            ? {
+                totalUsers:   agg.totalUsers,
+                totalPoints:  agg.totalPoints,
+                users100plus: agg.users100plus,
+                usersZero:    agg.usersZero,
+                avgBalance:   agg.totalUsers > 0
+                    ? Math.round(agg.totalPoints / agg.totalUsers)
+                    : 0,
+                liabilityINR: Math.round(agg.totalPoints * POINTS_TO_INR),
+              }
+            : {
+                totalUsers:   0,
+                totalPoints:  0,
+                users100plus: 0,
+                usersZero:    0,
+                avgBalance:   0,
+                liabilityINR: 0,
+              };
 
         // ── Repair stale / missing cached fields ───────────────────────────
         //
@@ -88,11 +183,11 @@ export async function GET(req: NextRequest) {
                 const repairFields: Record<string, number> = {};
 
                 if (loyaltyStale) {
-                    const agg = await LoyaltyLedger.aggregate([
+                    const ledgerAgg = await LoyaltyLedger.aggregate([
                         { $match: { user: u._id } },
                         { $group: { _id: null, total: { $sum: "$points" } } },
                     ]);
-                    loyaltyPoints = agg[0]?.total ?? 0;
+                    loyaltyPoints = ledgerAgg[0]?.total ?? 0;
                     repairFields.loyaltyPoints = loyaltyPoints;
                 }
 
@@ -123,6 +218,7 @@ export async function GET(req: NextRequest) {
             page,
             totalPages: Math.ceil(total / limit),
             total,
+            analytics,
             users: repairedUsers.map((u: any) => ({
                 id:                  u._id.toString(),
                 name:                u.name,

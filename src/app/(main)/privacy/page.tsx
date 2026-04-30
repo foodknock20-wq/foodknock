@@ -106,7 +106,7 @@ const SECTIONS = [
         emoji: "✉️",
         icon:  Mail,
         title: "Contact Us",
-        body:  `For any privacy-related questions, data requests, or concerns, please contact us:\n\nFoodKnock\nRamgarh Bas Stand Circle, Danta, Sikar, Rajasthan\nEmail: ${CONTACT_EMAIL}\n\nWe are a small local team and genuinely care about your trust. We will always respond with honesty and transparency.`,
+        body:  `For any privacy-related questions, data requests, or concerns, please contact us:\n\nFoodKnock\nPhone : +91 8764821399\nEmail: ${CONTACT_EMAIL}\n\nWe genuinely care about your trust. We will always respond with honesty and transparency.`,
     },
 ];
 

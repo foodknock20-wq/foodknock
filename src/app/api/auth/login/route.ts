@@ -1,4 +1,3 @@
-export const dynamic = "force-dynamic";
 
 // src/app/api/auth/login/route.ts
 // Updated: blocks inactive users before issuing token, returns role in response.

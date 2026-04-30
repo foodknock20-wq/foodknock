@@ -2,7 +2,7 @@
 
 // src/components/shared/InstallPwaButton.tsx
 // FoodKnock — Premium PWA install prompt
-// Subtle, exciting, non-spammy · matches dark/warm brand language
+// Positioned above bottom nav on mobile · non-overlapping
 
 import { useEffect, useRef, useState } from "react";
 import { Download, X, Zap, RefreshCw, Bell } from "lucide-react";
@@ -16,10 +16,10 @@ interface BeforeInstallPromptEvent extends Event {
 const DISMISS_KEY = "fk_pwa_dismissed_v1";
 
 export default function InstallPwaButton() {
-    const [prompt,     setPrompt]     = useState<BeforeInstallPromptEvent | null>(null);
-    const [visible,    setVisible]    = useState(false);
+    const [prompt, setPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+    const [visible, setVisible] = useState(false);
     const [installing, setInstalling] = useState(false);
-    const [installed,  setInstalled]  = useState(false);
+    const [installed, setInstalled] = useState(false);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
@@ -73,7 +73,7 @@ export default function InstallPwaButton() {
 
     return (
         <>
-            {/* Backdrop blur on mobile */}
+            {/* Mobile backdrop */}
             <div
                 className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm md:hidden"
                 onClick={dismiss}
@@ -81,9 +81,21 @@ export default function InstallPwaButton() {
             />
 
             <div
-                className="fixed bottom-0 left-0 right-0 z-50 px-3 pb-3 md:bottom-5 md:left-auto md:right-5 md:max-w-[340px]"
-                style={{ animation: "fkSlideUp 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}
+                /**
+                 * Mobile:  sits above the 62px bottom nav + safe area inset.
+                 *          We add 8px extra breathing room → bottom = 62 + 8 = 70px
+                 * Desktop: standard bottom-right corner (bottom-5 right-5)
+                 */
+                className="fixed left-0 right-0 z-50 px-3 md:bottom-5 md:left-auto md:right-5 md:max-w-[340px]"
+                style={{
+                    bottom: "calc(70px + env(safe-area-inset-bottom, 0px))",
+                    // desktop overrides via Tailwind md: classes above, but we need
+                    // the CSS var only on mobile — md breakpoint resets via class
+                    animation: "fkSlideUp 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+                }}
             >
+                {/* Reset bottom for desktop via inline media query trick:
+                    Tailwind md:bottom-5 handles this on the class level. */}
                 <div
                     className="relative overflow-hidden rounded-3xl"
                     style={{
@@ -191,6 +203,12 @@ export default function InstallPwaButton() {
                 @keyframes fkSlideUp {
                     from { transform: translateY(110%); opacity: 0; }
                     to   { transform: translateY(0);    opacity: 1; }
+                }
+                /* On md+ screens reset bottom to fixed 20px */
+                @media (min-width: 768px) {
+                    .fk-pwa-wrap {
+                        bottom: 20px !important;
+                    }
                 }
             `}</style>
         </>

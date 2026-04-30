@@ -4,6 +4,8 @@
 //   2. Removed JS-level filter after full fetch — DB does the work
 //   3. Review query limited and field-projected
 //   4. Added force-dynamic
+// NEW FEATURE: Smart category navigation — links now carry ?category=X query param
+// NEW FEATURE: BestSellers section added to homepage
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,8 @@ import FeaturesSection from "@/components/home/FeaturesSection";
 import OfferBanner from "@/components/home/OfferBanner";
 import { ArrowRight, Star, ChevronRight } from "lucide-react";
 import FeaturedProductCard from "@/components/home/FeaturedProductCard";
+// NEW FEATURE: Import BestSellers component
+import BestSellers from "@/components/home/BestSellers";
 import { connectDB } from "@/lib/db";
 import Product from "@/models/Product";
 import Review from "@/models/Review";
@@ -48,18 +52,38 @@ export type SiteStats = {
 // ─── Data fetcher ──────────────────────────────────────────────────────────
 async function getHomeData(): Promise<{
     featuredProducts: HomeProduct[];
+    // NEW FEATURE: bestSellerProducts fetched for BestSellers section
+    bestSellerProducts: HomeProduct[];
     recentReviews: HomeReview[];
     stats: SiteStats;
 }> {
     try {
         await connectDB();
 
-        const [rawProducts, approvedReviews] = await Promise.all([
+        const [rawProducts, rawBestSellers, approvedReviews] = await Promise.all([
             // ✅ FIXED: DB-level sort + limit instead of fetching ALL then slicing in JS
             //    Uses compound index: { isAvailable:1, stock:1, isFeatured:-1, createdAt:-1 }
             Product.find({ isAvailable: true, stock: { $gt: 0 } })
                 .sort({ isFeatured: -1, createdAt: -1 })
                 .limit(6)                         // ✅ Only 6 docs — not entire collection
+                .select("_id name shortDescription price compareAtPrice category image isFeatured")
+                .lean(),
+
+            // NEW FEATURE: PERFORMANCE SAFE — fetch best sellers from priority categories
+            // Limited to 10 docs, DB-level filter, no extra round trip cost
+            // Uses isFeatured + category filter to get "most loved" items
+            Product.find({
+                isAvailable: true,
+                stock: { $gt: 0 },
+                category: {
+                    $in: [
+                        "Pizza", "Ice Cream", "Thali", "Momos",
+                        "Sandwich", "Shake", "Burger", "Coffee"
+                    ]
+                }
+            })
+                .sort({ isFeatured: -1, createdAt: -1 })
+                .limit(20) // fetch 20, dedupe to 10 in JS per-category logic
                 .select("_id name shortDescription price compareAtPrice category image isFeatured")
                 .lean(),
 
@@ -71,16 +95,47 @@ async function getHomeData(): Promise<{
                 .lean(),
         ]);
 
-        const featuredProducts = (rawProducts as any[]).map((p) => ({
-            _id:              String(p._id),
-            name:             p.name,
+        const mapProduct = (p: any): HomeProduct => ({
+            _id: String(p._id),
+            name: p.name,
             shortDescription: p.shortDescription,
-            price:            p.price,
-            compareAtPrice:   p.compareAtPrice ?? null,
-            category:         p.category,
-            image:            p.image,
-            isFeatured:       p.isFeatured,
-        }));
+            price: p.price,
+            compareAtPrice: p.compareAtPrice ?? null,
+            category: p.category,
+            image: p.image,
+            isFeatured: p.isFeatured,
+        });
+
+        const featuredProducts = (rawProducts as any[]).map(mapProduct);
+
+        // NEW FEATURE: PERFORMANCE SAFE — dedupe by category (max 2 per cat, max 10 total)
+        // Pure JS, no extra DB call — runs on already-fetched data
+        const bestSellerProducts = (() => {
+            const catCount: Record<string, number> = {};
+            const result: HomeProduct[] = [];
+            const PRIORITY_ORDER = [
+                "Ice Cream", "Thali", "Pizza", "Burger",
+                "Momos", "Sandwich", "Shake", "Coffee"
+            ];
+
+            // Sort by priority order first, then isFeatured
+            const sorted = (rawBestSellers as any[]).sort((a, b) => {
+                const ai = PRIORITY_ORDER.indexOf(a.category);
+                const bi = PRIORITY_ORDER.indexOf(b.category);
+                if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                return (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0);
+            });
+
+            for (const p of sorted) {
+                const cat = p.category;
+                catCount[cat] = (catCount[cat] || 0) + 1;
+                if (catCount[cat] <= 2 && result.length < 10) {
+                    result.push(mapProduct(p));
+                }
+                if (result.length >= 10) break;
+            }
+            return result;
+        })();
 
         const totalReviews = (approvedReviews as any[]).length;
         const avgNum =
@@ -93,18 +148,19 @@ async function getHomeData(): Promise<{
             .filter((r: any) => r.comment && r.comment.trim().length >= 10)
             .slice(0, 3)
             .map((r: any) => ({
-                _id:       String(r._id),
-                userName:  r.userName ?? "Customer",
-                rating:    r.rating ?? 5,
-                comment:   r.comment ?? "",
+                _id: String(r._id),
+                userName: r.userName ?? "Customer",
+                rating: r.rating ?? 5,
+                comment: r.comment ?? "",
                 createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : new Date().toISOString(),
             }));
 
         return {
             featuredProducts,
+            bestSellerProducts,
             recentReviews,
             stats: {
-                avgRating:      avgNum.toFixed(1),
+                avgRating: avgNum.toFixed(1),
                 totalReviews,
                 happyCustomers: Math.round(happyCustomers / 100) * 100,
             },
@@ -112,22 +168,23 @@ async function getHomeData(): Promise<{
     } catch {
         return {
             featuredProducts: [],
-            recentReviews:    [],
-            stats:            { avgRating: "4.9", totalReviews: 0, happyCustomers: 2400 },
+            bestSellerProducts: [],
+            recentReviews: [],
+            stats: { avgRating: "4.9", totalReviews: 0, happyCustomers: 2400 },
         };
     }
 }
 
 // ─── Categories strip ──────────────────────────────────────────────────────
+// NEW FEATURE: Each category now has a proper `category` key matching MenuClient categories
 const categories = [
-    { emoji: "🍔", label: "Burgers",   href: "/menu" },
-    { emoji: "🍕", label: "Pizza",     href: "/menu" },
-    { emoji: "🥤", label: "Shakes",    href: "/menu" },
-    { emoji: "🧃", label: "Juice",     href: "/menu" },
-    { emoji: "🍟", label: "Snacks",    href: "/menu" },
-    { emoji: "🥟", label: "Momos",     href: "/menu" },
-    { emoji: "☕", label: "Coffee",    href: "/menu" },
-    { emoji: "🍦", label: "Ice Cream", href: "/menu" },
+    { emoji: "🍔", label: "Burgers", category: "Burger" },
+    { emoji: "🍕", label: "Pizza", category: "Pizza" },
+    { emoji: "🥤", label: "Shakes", category: "Shake" },
+    { emoji: "🧃", label: "Juice", category: "Juice" },
+    { emoji: "🍟", label: "Snacks", category: "Snacks" },
+    { emoji: "🥟", label: "Momos", category: "Momos" },
+    { emoji: "🍦", label: "Ice Cream", category: "Ice Cream" },
 ];
 
 function CategoriesStrip() {
@@ -141,13 +198,17 @@ function CategoriesStrip() {
                             What are you craving?
                         </h2>
                     </div>
+                    {/* NEW FEATURE: "Full Menu" link now goes to /menu (no category = show all) */}
                     <Link href="/menu" className="group hidden items-center gap-1.5 text-sm font-bold text-amber-700 transition-colors hover:text-orange-600 md:inline-flex">
                         Full Menu <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
                     </Link>
                 </div>
                 <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-4 lg:grid-cols-8">
-                    {categories.map(({ emoji, label, href }) => (
-                        <Link key={label} href={href}
+                    {categories.map(({ emoji, label, category }) => (
+                        // NEW FEATURE: href now uses ?category=X for smart navigation
+                        <Link
+                            key={label}
+                            href={`/menu?category=${encodeURIComponent(category)}`}
                             className="group flex shrink-0 flex-col items-center gap-2.5 rounded-2xl border border-amber-100 bg-amber-50/50 p-4 text-center transition-all duration-200 hover:border-orange-300 hover:bg-orange-50 hover:shadow-md hover:shadow-orange-100/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
                             style={{ minWidth: "80px" }}
                         >
@@ -331,7 +392,8 @@ function FinalCTA() {
 }
 
 export default async function HomePage() {
-    const { featuredProducts, recentReviews, stats } = await getHomeData();
+    // NEW FEATURE: bestSellerProducts now destructured from getHomeData()
+    const { featuredProducts, bestSellerProducts, recentReviews, stats } = await getHomeData();
 
     return (
         <>
@@ -339,6 +401,8 @@ export default async function HomePage() {
             <main className="bg-[#FFFBF5]">
                 <HeroSection stats={stats} />
                 <FeaturedProducts products={featuredProducts} />
+                {/* NEW FEATURE: BestSellers section placed between FeaturedProducts and CategoriesStrip */}
+                <BestSellers products={bestSellerProducts} />
                 <CategoriesStrip />
                 <FeaturesSection />
                 <OfferBanner />

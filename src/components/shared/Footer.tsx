@@ -1,7 +1,7 @@
+// src/components/shared/Footer.tsx
 import Link from "next/link";
 import Image from "next/image";
 import {
-    MapPin,
     Mail,
     Clock,
     Instagram,
@@ -64,7 +64,6 @@ export default function Footer() {
                 className="relative mx-4 mt-0 overflow-hidden rounded-b-3xl md:mx-8"
                 style={{ background: "linear-gradient(135deg, #FF5C1A 0%, #FF8C42 60%, #FFB347 100%)" }}
             >
-                {/* Decorative rings */}
                 <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full border border-white/10" aria-hidden="true" />
                 <div className="pointer-events-none absolute -right-8 -top-8 h-40 w-40 rounded-full border border-white/10" aria-hidden="true" />
                 <div className="pointer-events-none absolute -left-12 bottom-0 h-48 w-48 rounded-full bg-black/10 blur-2xl" aria-hidden="true" />
@@ -86,7 +85,6 @@ export default function Footer() {
                                 Real food, real fast — right at your doorstep.
                             </p>
                         </div>
-
                         <div className="flex flex-col gap-3 sm:flex-row">
                             <Link
                                 href="/menu"
@@ -135,7 +133,7 @@ export default function Footer() {
             <div className="mx-auto max-w-7xl px-4 pb-12 md:px-8">
                 <div className="grid gap-12 sm:grid-cols-2 lg:grid-cols-4">
 
-                    {/* Brand */}
+                    {/* Brand column */}
                     <div className="sm:col-span-2 lg:col-span-1">
                         <div className="mb-5 flex items-center gap-3">
                             <div
@@ -146,7 +144,7 @@ export default function Footer() {
                                     src="/logo/logo.jpg"
                                     alt="FoodKnock"
                                     fill
-                                    sizes="(max-width: 768px) 100vw, 300px"
+                                    sizes="48px"
                                     className="object-cover"
                                 />
                             </div>
@@ -167,8 +165,27 @@ export default function Footer() {
                             Freshly prepared food, delivered with care. FoodKnock brings your favourite meals to your door — fast, honest, and satisfying.
                         </p>
 
+                        {/* ── Founders CTA — minimal, classy ── */}
+                        <Link
+                            href="/founders"
+                            className="group mt-5 flex items-center justify-between rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3.5 transition-all duration-300 hover:border-orange-500/25 hover:bg-white/[0.055]"
+                        >
+                            <div>
+                                <p className="text-[12px] font-bold text-white/55 transition-colors duration-200 group-hover:text-white/80">
+                                    Our Founders
+                                </p>
+                                <p className="text-[11px] text-white/25 transition-colors duration-200 group-hover:text-white/40">
+                                    Meet the people building FoodKnock
+                                </p>
+                            </div>
+                            <ChevronRight
+                                size={14}
+                                className="shrink-0 text-white/20 transition-all duration-300 group-hover:translate-x-0.5 group-hover:text-orange-400"
+                            />
+                        </Link>
+
                         {/* Social */}
-                        <div className="mt-6 flex items-center gap-2">
+                        <div className="mt-5 flex items-center gap-2">
                             {socialLinks.map(({ href, label, icon: Icon }) => (
                                 <a
                                     key={label}
@@ -183,7 +200,6 @@ export default function Footer() {
                             ))}
                         </div>
 
-                        {/* Website badge */}
                         <a
                             href="https://foodknock.com"
                             target="_blank"
@@ -222,24 +238,6 @@ export default function Footer() {
                         <ul className="space-y-4">
                             <li>
                                 <a
-                                    href="https://maps.google.com/?q=FoodKnock"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="group flex items-start gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
-                                >
-                                    <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
-                                        <MapPin size={13} className="text-orange-500/60" />
-                                    </span>
-                                    <span className="leading-relaxed">
-                                        FoodKnock Kitchen<br />
-                                        <span className="text-[11px] text-white/25 transition-colors group-hover:text-orange-400/60">
-                                            Get directions →
-                                        </span>
-                                    </span>
-                                </a>
-                            </li>
-                            <li>
-                                <a
                                     href="mailto:foodknock20@gmail.com"
                                     className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
                                 >
@@ -251,13 +249,13 @@ export default function Footer() {
                             </li>
                             <li>
                                 <a
-                                    href="tel:7307728292"
+                                    href="tel:8764821399"
                                     className="group flex items-center gap-3 text-[13px] text-white/40 transition-colors hover:text-orange-400"
                                 >
                                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-white/5 border border-white/10 transition-colors group-hover:border-orange-500/30 group-hover:bg-orange-500/10">
                                         📞
                                     </span>
-                                    7307728292
+                                    8764821399
                                 </a>
                             </li>
                             <li>
@@ -290,7 +288,6 @@ export default function Footer() {
                             ))}
                         </ul>
 
-                        {/* Live badge */}
                         <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2">
                             <span className="relative flex h-2 w-2">
                                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
@@ -310,6 +307,8 @@ export default function Footer() {
                         <Link href="/privacy" className="transition-colors hover:text-orange-400">Privacy Policy</Link>
                         <span className="text-white/15">·</span>
                         <Link href="/terms" className="transition-colors hover:text-orange-400">Terms of Service</Link>
+                        <span className="text-white/15">·</span>
+                        <Link href="/founders" className="transition-colors hover:text-orange-400">Our Founders</Link>
                         <span className="text-white/15">·</span>
                         <a
                             href="https://foodknock.com"

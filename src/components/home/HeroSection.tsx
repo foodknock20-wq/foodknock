@@ -1,9 +1,11 @@
 "use client";
 
 // src/components/home/HeroSection.tsx
-// FoodKnock — Premium 7-slide hero carousel
+// FoodKnock — Premium 8-slide hero carousel
 // Ember orange · Playfair Display · tight mobile layout
-// All Sunrise references removed · FoodKnock brand voice throughout
+// NEW FEATURE: All ctaHref values updated to ?category=X for smart navigation
+// NEW FEATURE: Thali slide added (slide 7)
+// PATCH: cdnImage applied to all slide images — zero Vercel image optimizer usage
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
@@ -18,20 +20,22 @@ import {
     Tag,
 } from "lucide-react";
 import type { SiteStats } from "@/app/(main)/page";
+import { cdnImage } from "@/lib/cdnImage";
 
 const slides = [
-    // ── Slide 1: Burgers ──────────────────────────────────────────────────
+    // ── Slide 1: Ice Cream ────────────────────────────────────────────────
     {
-        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773925742/foodknock/products/mybgjvbjbrmmkerjxfuf.jpg",
-        eyebrow: "🔥 Freshly Made",
-        headline: ["Burgers That Hit", "Different Every Time"],
-        sub: "Juicy smash burgers, loaded with flavour — prepared fresh the moment you order.",
-        cta: "Order Burgers",
-        ctaHref: "/menu",
-        ctaSecondary: "See Combos 🎁",
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773954483/ChatGPT_Image_Mar_20_2026_02_37_49_AM_bo7ofm.png",
+        eyebrow: "🍦 Sweet Endings",
+        headline: ["Ice Creams &", "Desserts to Crave"],
+        sub: "Cool off with handcrafted ice creams and desserts — sweet, fresh, irresistible.",
+        cta: "View Ice Creams",
+        ctaHref: "/menu?category=Ice%20Cream",
+        ctaSecondary: "Full Menu",
         ctaSecondaryHref: "/menu",
         badge: null,
     },
+
     // ── Slide 2: Pizza ────────────────────────────────────────────────────
     {
         image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773931597/foodknock/products/l5lsaqcwazuoqerrshmu.jpg",
@@ -39,78 +43,96 @@ const slides = [
         headline: ["Pizza Loaded With", "Every Craving"],
         sub: "Cheesy, crispy, made to order — our pizzas are a full meal in themselves.",
         cta: "Explore Pizzas",
-        ctaHref: "/menu",
+        ctaHref: "/menu?category=Pizza",
         ctaSecondary: "Full Menu",
         ctaSecondaryHref: "/menu",
         badge: null,
     },
-    // ── Slide 3: Combo Deals (conversion) ─────────────────────────────────
+
+    // ── Slide 3: Sandwich / Snacks ───────────────────────────────────────
     {
-        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773923334/foodknock/products/hqctvhkqyvcwlvetld2u.jpg",
-        eyebrow: "🎁 Limited Deals",
-        headline: ["Best Combos &", "Biggest Savings Today"],
-        sub: "Save 15–30% with handpicked combos — burger + fries + shake and more. Eat smarter.",
-        cta: "🔥 Grab a Combo",
-        ctaHref: "/menu",
-        ctaSecondary: "All Deals",
-        ctaSecondaryHref: "/menu",
-        badge: "SAVE UP TO 30%",
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773930392/foodknock/products/mjkal8x5l2z9qfibjt61.jpg",
+        eyebrow: "🥟 Street Style Cravings",
+        headline: ["Sandwiches, Momos &", "Snacks That Hit"],
+        sub: "Loaded sandwiches, crispy fries, steaming momos — street food, perfected.",
+        cta: "Order Snacks",
+        ctaHref: "/menu?category=Momos",
+        ctaSecondary: "View Combos 🎁",
+        ctaSecondaryHref: "/menu?category=Combos",
+        badge: null,
     },
-    // ── Slide 4: Shakes & Juice ───────────────────────────────────────────
+
+    // ── Slide 4: Thali ───────────────────────────────────────────────────
+    {
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1777120403/thali_fx7iut.png",
+        eyebrow: "🍛 Full Meal Deal",
+        headline: ["Premium Thalis,", "Complete & Satisfying"],
+        sub: "Wholesome thalis packed with flavour — the perfect full meal, made fresh every time.",
+        cta: "🍛 Order Thali",
+        ctaHref: "/menu?category=Thali",
+        ctaSecondary: "Full Menu",
+        ctaSecondaryHref: "/menu",
+        badge: null,
+    },
+
+    // ── Slide 5: Shakes ──────────────────────────────────────────────────
     {
         image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773954395/ChatGPT_Image_Mar_20_2026_02_36_13_AM_bfkwrg.png",
         eyebrow: "🥤 Chilled & Fresh",
         headline: ["Shakes & Juices", "Made With Love"],
         sub: "Thick shakes, cold-pressed juices, iced coffees — the perfect companion to any meal.",
         cta: "See Drinks",
-        ctaHref: "/menu",
+        ctaHref: "/menu?category=Premium%20Shakes",
         ctaSecondary: "Full Menu",
         ctaSecondaryHref: "/menu",
         badge: null,
     },
-    // ── Slide 5: Ice Cream ────────────────────────────────────────────────
+
+    // ── Slide 6: Burgers ─────────────────────────────────────────────────
     {
-        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773954483/ChatGPT_Image_Mar_20_2026_02_37_49_AM_bo7ofm.png",
-        eyebrow: "🍦 Sweet Endings",
-        headline: ["Ice Creams &", "Desserts to Crave"],
-        sub: "Cool off with handcrafted ice creams and desserts — sweet, fresh, irresistible.",
-        cta: "View Desserts",
-        ctaHref: "/menu",
-        ctaSecondary: "Full Menu",
-        ctaSecondaryHref: "/menu",
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773925742/foodknock/products/mybgjvbjbrmmkerjxfuf.jpg",
+        eyebrow: "🔥 Freshly Made",
+        headline: ["Burgers That Hit", "Different Every Time"],
+        sub: "Juicy smash burgers, loaded with flavour — prepared fresh the moment you order.",
+        cta: "Order Burgers",
+        ctaHref: "/menu?category=Burger",
+        ctaSecondary: "See Combos 🎁",
+        ctaSecondaryHref: "/menu?category=Combos",
         badge: null,
     },
-    // ── Slide 6: Momos & Snacks ───────────────────────────────────────────
+
+    // ── Slide 7: Combos ──────────────────────────────────────────────────
     {
-        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773930392/foodknock/products/mjkal8x5l2z9qfibjt61.jpg",
-        eyebrow: "🥟 Street Style Cravings",
-        headline: ["Momos, Fries &", "Snacks That Hit"],
-        sub: "Steaming hot momos, crispy fries, loaded sandwiches — street food, perfected.",
-        cta: "Order Snacks",
-        ctaHref: "/menu",
-        ctaSecondary: "View Combos 🎁",
-        ctaSecondaryHref: "/menu",
-        badge: null,
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773923334/foodknock/products/hqctvhkqyvcwlvetld2u.jpg",
+        eyebrow: "🎁 Limited Deals",
+        headline: ["Best Combos &", "Biggest Savings Today"],
+        sub: "Save 15–30% with handpicked combos — burger + fries + shake and more.",
+        cta: "🔥 Grab a Combo",
+        ctaHref: "/menu?category=Combos",
+        ctaSecondary: "All Deals",
+        ctaSecondaryHref: "/menu?category=Combos",
+        badge: "SAVE UP TO 30%",
     },
-    // ── Slide 7: Full Menu CTA (conversion) ───────────────────────────────
+
+    // ── Slide 8: Full Menu ───────────────────────────────────────────────
     {
         image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773952907/foodknock/products/ko6diantlifvrv16fdal.jpg",
         eyebrow: "⭐ Everything on FoodKnock",
         headline: ["100+ Items, Every", "Craving Sorted Here"],
-        sub: "From cheesy burgers to chilled shakes, hot momos to fresh juices — your full menu is one tap away.",
+        sub: "From desserts to meals — everything in one place.",
         cta: "🍽️ Full Menu",
         ctaHref: "/menu",
         ctaSecondary: "🎁 Best Combos",
-        ctaSecondaryHref: "/menu",
+        ctaSecondaryHref: "/menu?category=Combos",
         badge: "ORDER IN 2 TAPS",
     },
 ];
 
 const trustPills = [
-    { icon: Zap,         label: "Fast Delivery"   },
-    { icon: Clock,       label: "Open Late"        },
-    { icon: ShieldCheck, label: "Fresh Daily"      },
-    { icon: Star,        label: "4.9★ Rated"       },
+    { icon: Zap, label: "Fast Delivery" },
+    { icon: Clock, label: "Open Late" },
+    { icon: ShieldCheck, label: "Fresh Daily" },
+    { icon: Star, label: "4.9★ Rated" },
 ];
 
 const AUTOPLAY_MS = 5000;
@@ -118,9 +140,9 @@ const AUTOPLAY_MS = 5000;
 interface HeroSectionProps { stats: SiteStats; }
 
 export default function HeroSection({ stats }: HeroSectionProps) {
-    const [current,   setCurrent]   = useState(0);
+    const [current, setCurrent] = useState(0);
     const [animating, setAnimating] = useState(false);
-    const [paused,    setPaused]    = useState(false);
+    const [paused, setPaused] = useState(false);
 
     const go = useCallback((idx: number) => {
         if (animating) return;
@@ -147,7 +169,7 @@ export default function HeroSection({ stats }: HeroSectionProps) {
             stat: stats.totalReviews > 0 ? `${stats.avgRating}/5` : "4.9/5",
             label: "Customer Rating",
         },
-        { emoji: "🛵", stat: "~30 min", label: "Avg Delivery" },
+        { emoji: "🛵", stat: "~40-45 min", label: "Avg Delivery" },
         {
             emoji: "🎉",
             stat:
@@ -170,7 +192,7 @@ export default function HeroSection({ stats }: HeroSectionProps) {
                     onTouchStart={() => setPaused(true)}
                     onTouchEnd={() => setPaused(false)}
                 >
-                    {/* Slide images */}
+                    {/* Slide images — PATCH: cdnImage(url, 1200) bypasses Vercel optimizer */}
                     {slides.map((s, i) => (
                         <div
                             key={i}
@@ -179,7 +201,7 @@ export default function HeroSection({ stats }: HeroSectionProps) {
                             aria-hidden={i !== current}
                         >
                             <img
-                                src={s.image}
+                                src={cdnImage(s.image, 1200)}
                                 alt=""
                                 className="fk-hs-img"
                                 loading={i === 0 ? "eager" : "lazy"}
@@ -188,7 +210,7 @@ export default function HeroSection({ stats }: HeroSectionProps) {
                     ))}
 
                     {/* Overlays */}
-                    <div className="fk-hs-overlay-left"   />
+                    <div className="fk-hs-overlay-left" />
                     <div className="fk-hs-overlay-bottom" />
 
                     {/* Content shell */}
@@ -257,9 +279,8 @@ export default function HeroSection({ stats }: HeroSectionProps) {
                                 key={i}
                                 onClick={() => go(i)}
                                 aria-label={`Slide ${i + 1}`}
-                                className={`fk-hs-dot${i === current ? " fk-hs-dot--active" : ""}${
-                                    (i === 2 || i === 6) ? " fk-hs-dot--special" : ""
-                                }`}
+                                className={`fk-hs-dot${i === current ? " fk-hs-dot--active" : ""}${(i === 2 || i === 7) ? " fk-hs-dot--special" : ""
+                                    }`}
                             />
                         ))}
                     </div>

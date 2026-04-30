@@ -1,9 +1,8 @@
 "use client";
 
-// src/components/home/FeaturedProductCard.tsx
-
 import Link from "next/link";
-import { ShoppingBag, TrendingUp, Flame } from "lucide-react";
+import Image from "next/image";
+import { ShoppingBag, Flame } from "lucide-react";
 import type { HomeProduct } from "@/app/(main)/page";
 
 const FALLBACK_IMAGE =
@@ -11,74 +10,64 @@ const FALLBACK_IMAGE =
 
 export default function FeaturedProductCard({ product }: { product: HomeProduct }) {
     const hasDiscount =
-        typeof product.compareAtPrice === "number" && product.compareAtPrice > product.price;
+        typeof product.compareAtPrice === "number" &&
+        product.compareAtPrice > product.price;
 
     const saving = hasDiscount
         ? Math.round(product.compareAtPrice! - product.price)
         : null;
 
     const discountPct = hasDiscount
-        ? Math.round(((product.compareAtPrice! - product.price) / product.compareAtPrice!) * 100)
+        ? Math.round(
+            ((product.compareAtPrice! - product.price) /
+                product.compareAtPrice!) *
+            100
+        )
         : null;
 
+    const href = `/menu?category=${encodeURIComponent(product.category)}`;
+
     return (
-        <Link href="/menu" className="block">
+        <Link href={href} className="block">
             <div
-                className="group relative flex flex-col overflow-hidden rounded-[20px] bg-white transition-all duration-300 hover:-translate-y-1 cursor-pointer"
-                style={{
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)",
-                }}
-                onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.boxShadow =
-                        "0 12px 40px rgba(255,92,26,0.15), 0 0 0 1px rgba(255,92,26,0.12)";
-                }}
-                onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLDivElement).style.boxShadow =
-                        "0 2px 12px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.04)";
-                }}
+                className="group relative flex flex-col overflow-hidden rounded-[20px] bg-white transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_12px_40px_rgba(255,92,26,0.15)]"
             >
-                {/* ── Image area ── */}
+                {/* ── Image ── */}
                 <div className="relative h-40 w-full overflow-hidden bg-stone-100 sm:h-44 md:h-48">
-                    <img
-                        src={product.image ?? FALLBACK_IMAGE}
+                    <Image
+                        src={product.image || FALLBACK_IMAGE}
                         alt={product.name}
-                        className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-[1.08]"
-                        loading="lazy"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).src = FALLBACK_IMAGE;
-                        }}
+                        fill
+                        sizes="(max-width: 768px) 100vw, 33vw"
+                        className="object-cover transition-transform duration-700 group-hover:scale-[1.08]"
+                        priority={false}
                     />
 
+                    {/* overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
 
+                    {/* category */}
                     <span className="absolute left-2.5 top-2.5 rounded-full border border-white/40 bg-black/30 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white backdrop-blur-md">
                         {product.category}
                     </span>
 
+                    {/* popular */}
                     {product.isFeatured && (
-                        <span
-                            className="absolute right-2.5 top-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black text-white"
-                            style={{ background: "linear-gradient(135deg, #FF5C1A, #FF8C42)" }}
-                        >
+                        <span className="absolute right-2.5 top-2.5 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black text-white bg-gradient-to-br from-[#FF5C1A] to-[#FF8C42]">
                             <Flame size={9} strokeWidth={3} />
                             Popular
                         </span>
                     )}
 
+                    {/* discount */}
                     {discountPct !== null && (
-                        <span
-                            className="absolute bottom-2.5 left-2.5 rounded-full px-2.5 py-1 text-[10px] font-black text-white"
-                            style={{
-                                background: "linear-gradient(135deg, #10b981, #059669)",
-                                boxShadow: "0 2px 8px rgba(16,185,129,0.4)",
-                            }}
-                        >
+                        <span className="absolute bottom-2.5 left-2.5 rounded-full px-2.5 py-1 text-[10px] font-black text-white bg-gradient-to-br from-green-500 to-emerald-600 shadow-md">
                             {discountPct}% OFF
                         </span>
                     )}
                 </div>
 
-                {/* ── Content area ── */}
+                {/* ── Content ── */}
                 <div className="flex flex-1 flex-col p-3.5 sm:p-4">
                     <h3
                         className="line-clamp-1 font-black leading-snug text-stone-900"
@@ -123,15 +112,8 @@ export default function FeaturedProductCard({ product }: { product: HomeProduct 
                             )}
                         </div>
 
-                        {/* Order button visual only */}
-                        <span
-                            className="flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-black text-white transition-all duration-200"
-                            style={{
-                                background: "linear-gradient(135deg, #FF5C1A 0%, #FF8C42 100%)",
-                                boxShadow: "0 3px 10px rgba(255,92,26,0.35)",
-                                minHeight: "34px",
-                            }}
-                        >
+                        {/* CTA */}
+                        <span className="flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-black text-white bg-gradient-to-br from-[#FF5C1A] to-[#FF8C42] shadow-md">
                             <ShoppingBag size={11} strokeWidth={2.5} />
                             Order
                         </span>

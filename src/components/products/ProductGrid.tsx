@@ -1,8 +1,11 @@
 "use client";
 
 // src/components/products/ProductGrid.tsx
+// PERF: wrapped with React.memo — prevents re-render when parent re-renders
+//       with identical props (common during search debounce, category switches)
+// PERF FIX: getPageNumbers wrapped in useCallback — prevents recreation on every render
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, memo } from "react";
 import ProductCard from "./ProductCard";
 import { ChevronLeft, ChevronRight, SearchX } from "lucide-react";
 
@@ -23,8 +26,14 @@ type Product = {
 
 const ITEMS_PER_PAGE = 12;
 
-// ─── Empty state ──────────────────────────────────────────────────────────
-function EmptyState({ hasFilters, onReset }: { hasFilters: boolean; onReset: () => void }) {
+// ─── Empty state — memoized, never re-renders unless hasFilters changes ───────
+const EmptyState = memo(function EmptyState({
+    hasFilters,
+    onReset,
+}: {
+    hasFilters: boolean;
+    onReset: () => void;
+}) {
     return (
         <div className="flex flex-col items-center justify-center rounded-3xl border border-amber-100 bg-white px-6 py-20 text-center shadow-sm">
             <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-orange-100 bg-orange-50">
@@ -52,10 +61,10 @@ function EmptyState({ hasFilters, onReset }: { hasFilters: boolean; onReset: () 
             )}
         </div>
     );
-}
+});
 
-// ─── Pagination ───────────────────────────────────────────────────────────
-function Pagination({
+// ─── Pagination — memoized ────────────────────────────────────────────────────
+const Pagination = memo(function Pagination({
     currentPage, totalPages, onPageChange, totalItems, startItem, endItem,
 }: {
     currentPage: number; totalPages: number; onPageChange: (p: number) => void;
@@ -63,17 +72,22 @@ function Pagination({
 }) {
     if (totalPages <= 1) return null;
 
-    const getPageNumbers = (): (number | "...")[] => {
+    // PERF FIX: getPageNumbers wrapped in useCallback so it is not recreated on
+    // every render — only recalculates when currentPage or totalPages actually changes.
+    const getPageNumbers = useCallback((): (number | "...")[] => {
         if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
         const pages: (number | "...")[] = [1];
         if (currentPage > 3) pages.push("...");
         const start = Math.max(2, currentPage - 1);
-        const end   = Math.min(totalPages - 1, currentPage + 1);
+        const end = Math.min(totalPages - 1, currentPage + 1);
         for (let i = start; i <= end; i++) pages.push(i);
         if (currentPage < totalPages - 2) pages.push("...");
         pages.push(totalPages);
         return pages;
-    };
+    }, [currentPage, totalPages]); // PERF FIX: precise deps — not recreated unless these change
+
+    // PERF: memoize the computed page number array so it isn't rebuilt each render
+    const pageNumbers = useMemo(() => getPageNumbers(), [getPageNumbers]);
 
     return (
         <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
@@ -91,7 +105,7 @@ function Pagination({
                     <ChevronLeft size={15} strokeWidth={2.5} />
                 </button>
 
-                {getPageNumbers().map((page, i) =>
+                {pageNumbers.map((page, i) =>
                     page === "..." ? (
                         <span key={`ellipsis-${i}`} className="flex h-9 w-9 items-center justify-center text-xs text-stone-400">…</span>
                     ) : (
@@ -99,11 +113,10 @@ function Pagination({
                             key={page}
                             onClick={() => onPageChange(page as number)}
                             aria-current={currentPage === page ? "page" : undefined}
-                            className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold transition-all ${
-                                currentPage === page
+                            className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold transition-all ${currentPage === page
                                     ? "bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
                                     : "border border-stone-200 bg-white text-stone-500 hover:border-orange-300 hover:bg-orange-50 hover:text-orange-500"
-                            }`}
+                                }`}
                         >
                             {page}
                         </button>
@@ -121,10 +134,12 @@ function Pagination({
             </div>
         </div>
     );
-}
+});
 
-// ─── Grid ─────────────────────────────────────────────────────────────────
-export default function ProductGrid({
+// ─── Grid — memoized outer component ─────────────────────────────────────────
+// PERF: React.memo prevents full re-render when parent state changes but
+//       products/onReset/hasFilters props haven't changed
+const ProductGrid = memo(function ProductGrid({
     products, onReset, hasFilters,
 }: {
     products: Product[];
@@ -135,19 +150,21 @@ export default function ProductGrid({
 
     const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex   = Math.min(startIndex + ITEMS_PER_PAGE, products.length);
+    const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, products.length);
 
     const paginated = useMemo(
         () => products.slice(startIndex, endIndex),
         [products, startIndex, endIndex]
     );
 
-    const handlePageChange = (page: number) => {
+    // OPTIMIZED: stable handlePageChange — useCallback prevents new fn on every render
+    const handlePageChange = useCallback((page: number) => {
         if (page < 1 || page > totalPages) return;
         setCurrentPage(page);
-        window.scrollTo({ top: 320, behavior: "smooth" });
-    };
+        window.scrollTo({ top: 320, behavior: "auto" });
+    }, [totalPages]);
 
+    // PERF: reset to page 1 when products list changes (new filter/search)
     useEffect(() => { setCurrentPage(1); }, [products]);
 
     if (!products.length) {
@@ -168,4 +185,6 @@ export default function ProductGrid({
             />
         </div>
     );
-}
+});
+
+export default ProductGrid;
