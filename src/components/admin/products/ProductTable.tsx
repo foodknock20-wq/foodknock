@@ -356,7 +356,9 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                                     {product.isAvailable ? "Live" : "Off"}
                                                 </span>
                                                 {product.isFeatured && (
-                                                    <Star size={13} className="fill-amber-400 text-amber-400" title="Featured" />
+                                                    <span title="Featured">
+                                                        <Star size={13} className="fill-amber-400 text-amber-400" />
+                                                    </span>
                                                 )}
                                             </div>
                                         </td>
