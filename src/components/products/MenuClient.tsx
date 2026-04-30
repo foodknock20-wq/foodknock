@@ -383,7 +383,7 @@ export default function MenuClient({
                     {sortedThalis.items.length > 0 && (
                         <div id="section-thali">
                             <ThaliSection
-                                products={sortedThalis.items}
+                                sortedProducts={sortedThalis.items}
                                 availableCount={sortedThalis.availableCount}
                                 onViewAll={handleCategorySelect}
                             />
