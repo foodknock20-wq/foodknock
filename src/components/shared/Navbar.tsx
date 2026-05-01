@@ -264,7 +264,7 @@ function AccountSheet({
                             onClick={onClose}
                         />
                         <SheetRow
-                            href="/review"
+                            href="/reviews"
                             icon={<MessageSquare size={15} />}
                             label="Write a Review"
                             onClick={onClose}
