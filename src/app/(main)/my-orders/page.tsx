@@ -1,4 +1,3 @@
-
 "use client";
 export const dynamic = "force-dynamic";
 
@@ -12,7 +11,7 @@ import {
     Package, ArrowRight, Clock, ChefHat, Truck, PartyPopper,
     Store, Loader2, ShoppingBag, ChevronRight, Calendar,
     ReceiptText, UtensilsCrossed, Search, X, ChevronLeft,
-    Sparkles, IndianRupee, TrendingUp,
+    Sparkles, TrendingUp,
 } from "lucide-react";
 import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
@@ -57,7 +56,7 @@ const STATUS_CONFIG: Record<string, {
 
 const fmtDate = (s: string) => new Date(s).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
-const fmtRs   = (n: number) => "₹" + n.toLocaleString("en-IN");
+const fmtRs = (n: number) => "₹" + n.toLocaleString("en-IN");
 
 function StatusBadge({ status }: { status: string }) {
     const c = STATUS_CONFIG[status] ?? { label: status, icon: Package, bg: "bg-stone-50", text: "text-stone-600", border: "border-stone-200", dot: "bg-stone-400" };
@@ -92,10 +91,10 @@ function SkeletonCard() {
 }
 
 function OrderCard({ order, index }: { order: Order; index: number }) {
-    const itemCount    = order.items.reduce((s, i) => s + i.quantity, 0);
+    const itemCount = order.items.reduce((s, i) => s + i.quantity, 0);
     const previewItems = order.items.slice(0, 2);
-    const remaining    = order.items.length - 2;
-    const cfg          = STATUS_CONFIG[order.status];
+    const remaining = order.items.length - 2;
+    const cfg = STATUS_CONFIG[order.status];
 
     return (
         <Link
@@ -116,11 +115,10 @@ function OrderCard({ order, index }: { order: Order; index: number }) {
                         <Calendar size={10} strokeWidth={2.5} />
                         {fmtDate(order.createdAt)} · {fmtTime(order.createdAt)}
                     </span>
-                    <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${
-                        order.orderType === "delivery"
-                            ? "border-amber-200 bg-amber-50 text-amber-600"
-                            : "border-stone-200 bg-stone-50 text-stone-600"
-                    }`}>
+                    <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${order.orderType === "delivery"
+                        ? "border-amber-200 bg-amber-50 text-amber-600"
+                        : "border-stone-200 bg-stone-50 text-stone-600"
+                        }`}>
                         {order.orderType === "delivery"
                             ? <><Truck size={8} strokeWidth={2.5} /> Delivery</>
                             : <><Store size={8} strokeWidth={2.5} /> Pickup</>}
@@ -165,12 +163,12 @@ function OrderCard({ order, index }: { order: Order; index: number }) {
 
 function EmptyState({ filter, onClear }: { filter: FilterTab; onClear: () => void }) {
     const MAP: Record<FilterTab, { emoji: string; title: string; sub: string }> = {
-        all:              { emoji: "🛍️", title: "No orders yet",            sub: "Your order history will show up here. Start with something delicious!" },
-        active:           { emoji: "⏳", title: "No active orders",          sub: "All quiet for now. Fancy something fresh from the kitchen?" },
-        delivered:        { emoji: "✅", title: "No delivered orders yet",   sub: "Completed orders land here once delivered." },
-        received:         { emoji: "📬", title: "No orders received",        sub: "Orders confirmed by the kitchen appear here." },
-        preparing:        { emoji: "👨‍🍳", title: "Nothing being prepared",  sub: "Orders being cooked will show up here in real-time." },
-        out_for_delivery: { emoji: "🛵", title: "Nothing out for delivery",  sub: "Orders on their way to you will appear here." },
+        all: { emoji: "🛍️", title: "No orders yet", sub: "Your order history will show up here. Start with something delicious!" },
+        active: { emoji: "⏳", title: "No active orders", sub: "All quiet for now. Fancy something fresh from the kitchen?" },
+        delivered: { emoji: "✅", title: "No delivered orders yet", sub: "Completed orders land here once delivered." },
+        received: { emoji: "📬", title: "No orders received", sub: "Orders confirmed by the kitchen appear here." },
+        preparing: { emoji: "👨‍🍳", title: "Nothing being prepared", sub: "Orders being cooked will show up here in real-time." },
+        out_for_delivery: { emoji: "🛵", title: "Nothing out for delivery", sub: "Orders on their way to you will appear here." },
     };
     const { emoji, title, sub } = MAP[filter];
     return (
@@ -222,11 +220,10 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
                     <button
                         key={p}
                         onClick={() => onChange(p as number)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold transition-all ${
-                            current === p
-                                ? "scale-105 bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
-                                : "border border-amber-100 bg-white text-stone-600 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600"
-                        }`}
+                        className={`flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold transition-all ${current === p
+                            ? "scale-105 bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
+                            : "border border-amber-100 bg-white text-stone-600 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600"
+                            }`}
                     >
                         {p}
                     </button>
@@ -246,22 +243,22 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
 
 type TabDef = { key: FilterTab; label: string; icon: React.ElementType };
 const TABS: TabDef[] = [
-    { key: "all",              label: "All",         icon: Package     },
-    { key: "active",           label: "Active",      icon: Sparkles    },
-    { key: "received",         label: "Received",    icon: Clock       },
-    { key: "preparing",        label: "Preparing",   icon: ChefHat     },
-    { key: "out_for_delivery", label: "On the Way",  icon: Truck       },
-    { key: "delivered",        label: "Delivered",   icon: PartyPopper },
+    { key: "all", label: "All", icon: Package },
+    { key: "active", label: "Active", icon: Sparkles },
+    { key: "received", label: "Received", icon: Clock },
+    { key: "preparing", label: "Preparing", icon: ChefHat },
+    { key: "out_for_delivery", label: "On the Way", icon: Truck },
+    { key: "delivered", label: "Delivered", icon: PartyPopper },
 ];
 
 export default function MyOrdersPage() {
     const router = useRouter();
     const [orders, setOrders] = useState<Order[]>([]);
     const [loading, setLoading] = useState(true);
-    const [error, setError]     = useState("");
-    const [filter, setFilter]   = useState<FilterTab>("all");
-    const [search, setSearch]   = useState("");
-    const [page, setPage]       = useState(1);
+    const [error, setError] = useState("");
+    const [filter, setFilter] = useState<FilterTab>("all");
+    const [search, setSearch] = useState("");
+    const [page, setPage] = useState(1);
     const gridRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -271,7 +268,7 @@ export default function MyOrdersPage() {
                 if (!meRes.ok) { router.replace("/auth?redirect=/my-orders"); return; }
                 const meData = await meRes.json();
                 if (!meData.success) { router.replace("/auth?redirect=/my-orders"); return; }
-                const ordRes  = await fetch("/api/orders/my", { credentials: "include" });
+                const ordRes = await fetch("/api/orders/my", { credentials: "include" });
                 const ordData = await ordRes.json();
                 if (!ordRes.ok || !ordData.success) { setError("Failed to load your orders. Please try again."); return; }
                 setOrders(ordData.orders ?? []);
@@ -284,21 +281,27 @@ export default function MyOrdersPage() {
         load();
     }, [router]);
 
-    const activeOrders   = useMemo(() => orders.filter((o) => o.status !== "delivered"), [orders]);
-    const totalSpent     = useMemo(() => orders.reduce((s, o) => s + o.totalAmount, 0), [orders]);
-    const mostOrdered    = useMemo(() => {
+    const activeOrders = useMemo(() => orders.filter((o) => o.status !== "delivered"), [orders]);
+
+    // ── Rewards: 1 pt per ₹10 spent — never format as currency ──
+    const rewardPoints = useMemo(
+        () => Math.floor(orders.reduce((s, o) => s + o.totalAmount, 0) / 10),
+        [orders]
+    );
+
+    const mostOrdered = useMemo(() => {
         const freq: Record<string, number> = {};
         orders.forEach((o) => o.items.forEach((i) => { freq[i.name] = (freq[i.name] ?? 0) + i.quantity; }));
         return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
     }, [orders]);
 
     const tabCounts = useMemo<Record<FilterTab, number>>(() => ({
-        all:              orders.length,
-        active:           orders.filter((o) => o.status !== "delivered").length,
-        received:         orders.filter((o) => o.status === "received").length,
-        preparing:        orders.filter((o) => o.status === "preparing").length,
+        all: orders.length,
+        active: orders.filter((o) => o.status !== "delivered").length,
+        received: orders.filter((o) => o.status === "received").length,
+        preparing: orders.filter((o) => o.status === "preparing").length,
         out_for_delivery: orders.filter((o) => o.status === "out_for_delivery").length,
-        delivered:        orders.filter((o) => o.status === "delivered").length,
+        delivered: orders.filter((o) => o.status === "delivered").length,
     }), [orders]);
 
     const filteredOrders = useMemo(() => {
@@ -316,12 +319,12 @@ export default function MyOrdersPage() {
         return base;
     }, [orders, filter, search]);
 
-    const totalPages  = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE);
+    const totalPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE);
     const pagedOrders = filteredOrders.slice((page - 1) * ORDERS_PER_PAGE, page * ORDERS_PER_PAGE);
 
     const handleFilter = (f: FilterTab) => { setFilter(f); setSearch(""); setPage(1); };
     const handleSearch = (v: string) => { setSearch(v); setPage(1); };
-    const handlePage   = (p: number) => {
+    const handlePage = (p: number) => {
         setPage(p);
         setTimeout(() => gridRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
     };
@@ -357,6 +360,7 @@ export default function MyOrdersPage() {
 
                         {!loading && orders.length > 0 && (
                             <div className="flex flex-wrap gap-2.5">
+                                {/* Total Orders */}
                                 <div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-white px-4 py-2.5 shadow-sm">
                                     <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100">
                                         <ReceiptText size={13} className="text-amber-600" />
@@ -366,6 +370,8 @@ export default function MyOrdersPage() {
                                         <p className="text-sm font-black text-stone-900">{orders.length} orders</p>
                                     </div>
                                 </div>
+
+                                {/* Active Orders */}
                                 {activeOrders.length > 0 && (
                                     <div className="flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-2.5 shadow-sm">
                                         <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-orange-100">
@@ -377,15 +383,21 @@ export default function MyOrdersPage() {
                                         </div>
                                     </div>
                                 )}
+
+                                {/* ── Rewards Earned — never show currency, always pts ── */}
                                 <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 shadow-sm">
                                     <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-100">
-                                        <IndianRupee size={13} className="text-emerald-600" />
+                                        <Sparkles size={13} className="text-emerald-600" />
                                     </div>
                                     <div>
-                                        <p className="text-[9px] font-black uppercase tracking-widest leading-none text-emerald-500">Total Spent</p>
-                                        <p className="text-sm font-black text-emerald-700">{fmtRs(totalSpent)}</p>
+                                        <p className="text-[9px] font-black uppercase tracking-widest leading-none text-emerald-500">Rewards Earned</p>
+                                        <p className="text-sm font-black text-emerald-700">
+                                            {rewardPoints.toLocaleString("en-IN")} pts
+                                        </p>
                                     </div>
                                 </div>
+
+                                {/* Favourite Dish */}
                                 {mostOrdered && (
                                     <div className="flex items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2.5 shadow-sm">
                                         <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-violet-100">
@@ -408,17 +420,16 @@ export default function MyOrdersPage() {
                         <div className="mx-auto max-w-7xl px-4 md:px-8">
                             <div className="flex items-center gap-1.5 overflow-x-auto py-3 scrollbar-none">
                                 {TABS.map(({ key, label, icon: Icon }) => {
-                                    const cnt      = tabCounts[key];
+                                    const cnt = tabCounts[key];
                                     const isActive = filter === key;
                                     return (
                                         <button
                                             key={key}
                                             onClick={() => handleFilter(key)}
-                                            className={`flex shrink-0 items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-[12px] font-bold transition-all duration-200 ${
-                                                isActive
-                                                    ? "border-orange-400 bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
-                                                    : "border-amber-100 bg-white text-stone-600 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
-                                            }`}
+                                            className={`flex shrink-0 items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-[12px] font-bold transition-all duration-200 ${isActive
+                                                ? "border-orange-400 bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
+                                                : "border-amber-100 bg-white text-stone-600 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
+                                                }`}
                                         >
                                             <Icon size={11} strokeWidth={2.5} />
                                             {label}
