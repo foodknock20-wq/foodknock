@@ -62,10 +62,10 @@ export default function FoundersPage() {
                 <FoundersHero />
             </div>
 
-            {/* Founder cards grid */}
+            {/* Founder cards grid — 2-column centered layout for two founders */}
             <section className="relative z-10 px-4 pb-20 md:px-8">
                 <div className="mx-auto max-w-7xl">
-                    <div className="grid gap-5 sm:grid-cols-3">
+                    <div className="grid gap-5 sm:grid-cols-2 max-w-3xl mx-auto">
                         {founders.map((founder) => (
                             <FounderCard
                                 key={founder.id}
