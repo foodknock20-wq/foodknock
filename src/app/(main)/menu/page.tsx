@@ -80,7 +80,7 @@ export default async function MenuPage() {
                             <AlertTriangle size={15} className="text-red-600" strokeWidth={2.5} />
                         </div>
                         <p className="text-[13px] font-bold text-red-700">
-                            ⚠️ Shop is currently closed.{" "}
+                            ⚠️ Foodknock is currently closed.{" "}
                             <span className="font-black">Orders will resume soon.</span>{" "}
                             <span className="font-medium text-red-500">You can still browse our menu.</span>
                         </p>
