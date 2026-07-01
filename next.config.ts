@@ -1,4 +1,3 @@
-import withPWA from "next-pwa";
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
@@ -66,25 +65,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-const pwa = withPWA({
-  dest: "public",
-  register: true,
-  skipWaiting: true,
-  disable: process.env.NODE_ENV === "development",
-
-  runtimeCaching: [
-    {
-      urlPattern: /\.(?:png|jpg|jpeg|svg|webp|gif)$/,
-      handler: "CacheFirst",
-      options: {
-        cacheName: "image-cache",
-        expiration: {
-          maxEntries: 60,
-          maxAgeSeconds: 7 * 24 * 60 * 60,
-        },
-      },
-    },
-  ],
-});
-
-export default pwa(nextConfig);
+export default nextConfig;
