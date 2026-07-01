@@ -88,6 +88,11 @@ export async function sendFcmMessage(input: FcmSendInput): Promise<FcmSendResult
     try {
         const messaging = getMessagingInstance();
 
+        console.log("===============");
+console.log("FCM PAYLOAD");
+console.log(JSON.stringify(input.payload,null,2));
+console.log("===============");
+
         const messageId = await messaging.send({
             token: input.token,
             data: {

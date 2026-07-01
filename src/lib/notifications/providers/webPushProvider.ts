@@ -218,6 +218,8 @@ export class WebPushProvider implements DeliveryProvider {
     async send(target: NotificationTarget, payload: NotificationPayload): Promise<DeliveryResult> {
         const subs = await resolveTargetSubscriptions(target, payload.category);
         const wpPayload = toWebPushPayload(payload);
+        console.log("WEB PUSH PAYLOAD");
+        console.log(JSON.stringify(wpPayload,null,2));
 
         let sent = 0, failed = 0, deactivated = 0;
 
