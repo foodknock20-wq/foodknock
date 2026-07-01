@@ -46,7 +46,21 @@ self.addEventListener("push", (event) => {
     try {
         if (event.data) {
             const parsed = event.data.json();
-            data = { ...data, ...parsed };
+
+            // FCM data-only webpush messages arrive wrapped as
+            // { payload: "<stringified original payload>" } (see
+            // src/lib/firebase/admin.ts's sendFcmMessage — deliberately
+            // sent this way so this handler stays the ONE place that
+            // interprets notification payloads, regardless of whether raw
+            // Web Push or FCM delivered them). Raw Web Push (unchanged)
+            // sends the payload object directly, with no wrapper — detect
+            // and unwrap only when the FCM shape is present.
+            const unwrapped =
+                parsed && typeof parsed.payload === "string"
+                    ? JSON.parse(parsed.payload)
+                    : parsed;
+
+            data = { ...data, ...unwrapped };
         }
     } catch { }
 

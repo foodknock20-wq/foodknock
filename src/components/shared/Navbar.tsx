@@ -3,6 +3,12 @@
 // src/components/shared/Navbar.tsx
 // FoodKnock — Premium mobile-first navbar with rotating ticker, smart header, floating bottom nav
 // PATCH: Logo Next/Image replaced with native img + cdnImage — zero Vercel image optimizer usage
+//
+// NEW: also listens for the `fk:notifications-changed` CustomEvent
+// (dispatched by NotificationInbox.tsx after any delete/clear-all/mark-read
+// mutation) and re-fetches the unread count immediately when it fires. The
+// EXISTING fetchUnreadNotifications()/GET /api/notifications data path is
+// completely unchanged — this only adds a second trigger for calling it.
 
 import Link from "next/link";
 import {
@@ -15,6 +21,7 @@ import { useCartStore } from "@/store/cartStore";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { cdnImage } from "@/lib/cdnImage";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/components/notifications/NotificationInbox";
 
 // ─── Types ────────────────────────────────────────────────────────────────
 type AuthUser = {
@@ -604,6 +611,17 @@ export default function Navbar() {
             fetchUnreadNotifications();
         }
     }, [authState, fetchLoyalty, fetchUnreadNotifications]);
+
+    // NEW: re-fetch the unread count whenever the Notifications page
+    // reports a mutation (delete/clear-all/mark-read), so the badge here
+    // stays in sync without a full reload. Only wired while authenticated
+    // — mirrors the same gate the existing fetch effect above already uses.
+    useEffect(() => {
+        if (authState !== "authenticated") return;
+        const handler = () => fetchUnreadNotifications();
+        window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handler);
+        return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handler);
+    }, [authState, fetchUnreadNotifications]);
 
     const navLinks = [
         ...baseNavLinks.slice(0, 2),

@@ -1,6 +1,13 @@
 // src/models/PushSubscription.ts
 // Stores web push subscriptions for sending promotional notifications.
 // Linked to a user if logged in, anonymous otherwise.
+//
+// NEW: `fcmToken` — additive, optional field. Populated only when the
+// client obtains one via the Firebase Web SDK (see usePushNotifications.ts).
+// Subscriptions without one continue being delivered via raw Web Push
+// exactly as before — zero behavior change for existing rows. No unique
+// constraint is placed on this field: uniqueness isn't required for
+// correctness here.
 
 import mongoose, { Schema, model, models } from "mongoose";
 
@@ -31,6 +38,15 @@ const PushSubscriptionSchema = new Schema(
         auth: {
             type: String,
             required: true,
+        },
+
+        // Firebase Cloud Messaging token — additive, optional. Present only
+        // when the client obtained one via the Firebase Web SDK. Null/absent
+        // means this subscription is delivered via raw Web Push only — a
+        // fully valid, unchanged state.
+        fcmToken: {
+            type: String,
+            default: null,
         },
 
         // Device/browser info for debugging

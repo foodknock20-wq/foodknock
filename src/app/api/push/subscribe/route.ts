@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 // src/app/api/push/subscribe/route.ts
 // POST — saves or updates a Web Push subscription in the DB.
 // Links to the logged-in user if authenticated; otherwise stores anonymously.
+//
+// NEW: now also accepts an optional `fcmToken` in the body. Existing
+// callers that don't send one are completely unaffected — fcmToken simply
+// stays null, same as every subscription created before this change.
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
@@ -14,7 +18,7 @@ export async function POST(req: NextRequest) {
         await connectDB();
 
         const body = await req.json();
-        const { endpoint, keys, userAgent } = body;
+        const { endpoint, keys, userAgent, fcmToken } = body;
 
         if (!endpoint || !keys?.p256dh || !keys?.auth) {
             return NextResponse.json(
@@ -22,6 +26,8 @@ export async function POST(req: NextRequest) {
                 { status: 400 }
             );
         }
+
+        const safeFcmToken = typeof fcmToken === "string" && fcmToken.trim() ? fcmToken.trim() : null;
 
         // ── Optional user link ────────────────────────────────────────────
         let userId: string | null = null;
@@ -45,6 +51,7 @@ export async function POST(req: NextRequest) {
             existing.failCount = 0;
             if (userId) existing.user = userId;
             if (userAgent) existing.userAgent = userAgent;
+            if (safeFcmToken) existing.fcmToken = safeFcmToken;
             await existing.save();
             return NextResponse.json({ success: true, message: "Subscription updated" });
         }
@@ -53,6 +60,7 @@ export async function POST(req: NextRequest) {
             endpoint,
             p256dh:    keys.p256dh,
             auth:      keys.auth,
+            fcmToken:  safeFcmToken,
             userAgent: userAgent ?? "",
             user:      userId,
             isActive:  true,

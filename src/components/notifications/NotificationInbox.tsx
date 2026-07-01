@@ -12,6 +12,17 @@
 // NotificationLog directly. That boundary already exists by construction
 // (this is a client component; the model is server-only), which keeps the
 // dependency direction correct: UI → API → engine/model, never the reverse.
+//
+// NEW additions:
+//   - handleDeleteOne(): individual delete, calls the new
+//     DELETE /api/notifications/[id] route.
+//   - handleClearAll(): unchanged call signature (still DELETE
+//     /api/notifications) — the fix was entirely server-side (adding the
+//     missing DELETE handler); this function's own logic was already
+//     correct, it was just talking to a 405.
+//   - notifyNotificationsChanged(): dispatches a same-tab CustomEvent after
+//     any mutation (delete/clear-all/mark-read/mark-all-read) so
+//     Navbar.tsx's independent unread-count fetch can refresh immediately.
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -21,6 +32,14 @@ import NotificationCard from "./NotificationCard";
 import EmptyInboxState from "./EmptyInboxState";
 import { groupNotifications } from "./groupNotifications";
 import type { InboxNotificationItem } from "@/lib/notifications/inboxQuery";
+
+export const NOTIFICATIONS_CHANGED_EVENT = "fk:notifications-changed";
+
+function notifyNotificationsChanged() {
+    if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent(NOTIFICATIONS_CHANGED_EVENT));
+    }
+}
 
 type Props = {
     initialItems: InboxNotificationItem[];
@@ -44,6 +63,7 @@ export default function NotificationInbox({
     const [loadingMore, setLoadingMore] = useState(false);
     const [markingAll, setMarkingAll] = useState(false);
     const [clearing, setClearing] = useState(false);
+    const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
     const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -93,7 +113,9 @@ export default function NotificationInbox({
                 );
                 setUnreadCount((c) => Math.max(0, c - 1));
                 // Fire-and-forget — navigation should never wait on this.
-                fetch(`/api/notifications/${item.id}/read`, { method: "PATCH" }).catch(() => {});
+                fetch(`/api/notifications/${item.id}/read`, { method: "PATCH" })
+                    .then(() => notifyNotificationsChanged())
+                    .catch(() => {});
             }
             router.push(url);
         },
@@ -108,6 +130,7 @@ export default function NotificationInbox({
         setUnreadCount(0);
         try {
             await fetch("/api/notifications/read-all", { method: "PATCH" });
+            notifyNotificationsChanged();
         } catch {
             // Non-critical: optimistic state already reflects "all read";
             // a failed server write just means the next full reload would
@@ -132,16 +155,70 @@ export default function NotificationInbox({
         setHasMore(false);
         setCursor(null);
         try {
-            await fetch("/api/notifications", { method: "DELETE" });
+            const res = await fetch("/api/notifications", { method: "DELETE" });
+            if (!res.ok) throw new Error("Clear all failed");
+            notifyNotificationsChanged();
         } catch {
-            // Non-critical: optimistic state already reflects "cleared"; a
-            // failed server write just means a future reload would show
-            // the previous items again, the same acceptable rare
-            // degradation handleMarkAllRead already accepts above.
+            // A failed clear now genuinely means the rows still exist server
+            // side — re-fetch the first page so the UI reflects reality
+            // rather than silently lying about an empty inbox.
+            try {
+                const res = await fetch("/api/notifications");
+                const data = await res.json();
+                if (data.success) {
+                    setItems(data.items);
+                    setCursor(data.nextCursor);
+                    setHasMore(data.hasMore);
+                    setUnreadCount(data.unreadCount);
+                }
+            } catch {
+                // Best-effort recovery only — nothing further to do here.
+            }
         } finally {
             setClearing(false);
         }
     }, [clearing, items.length]);
+
+    // ── Delete one notification (NEW) ───────────────────────────────────────
+    const handleDeleteOne = useCallback(
+        async (id: string) => {
+            if (deletingIds.has(id)) return;
+
+            const target = items.find((i) => i.id === id);
+            const wasUnread = target ? !target.isRead : false;
+
+            setDeletingIds((prev) => new Set(prev).add(id));
+            // Optimistic removal
+            setItems((prev) => prev.filter((i) => i.id !== id));
+            if (wasUnread) setUnreadCount((c) => Math.max(0, c - 1));
+
+            try {
+                const res = await fetch(`/api/notifications/${id}`, { method: "DELETE" });
+                if (!res.ok) throw new Error("Delete failed");
+                notifyNotificationsChanged();
+            } catch {
+                // Restore on failure — put the item back where optimistic
+                // removal took it from, rather than leaving the UI silently
+                // wrong about what's actually still in the database.
+                if (target) {
+                    setItems((prev) => {
+                        const next = [...prev, target];
+                        return next.sort(
+                            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                        );
+                    });
+                    if (wasUnread) setUnreadCount((c) => c + 1);
+                }
+            } finally {
+                setDeletingIds((prev) => {
+                    const next = new Set(prev);
+                    next.delete(id);
+                    return next;
+                });
+            }
+        },
+        [deletingIds, items]
+    );
 
     const groups = groupNotifications(items);
 
@@ -209,6 +286,7 @@ export default function NotificationInbox({
                                             group={group.label}
                                             onClick={() => handleNavigate(item, item.url)}
                                             onCtaClick={(url) => handleNavigate(item, url)}
+                                            onDelete={handleDeleteOne}
                                         />
                                     ))}
                                 </div>

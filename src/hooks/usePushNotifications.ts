@@ -3,8 +3,18 @@
 // src/hooks/usePushNotifications.ts
 // Fixed: added `mounted` guard to prevent SSR/client hydration mismatch
 // which caused React Suspense boundary crash → infinite page load.
+//
+// NEW (additive): after obtaining the standard Web Push subscription
+// exactly as before, ALSO attempts to obtain an FCM token via the same
+// registered service worker and includes it in the same
+// /api/push/subscribe call. If FCM isn't available/configured,
+// getFcmToken() resolves null and the request body simply omits
+// fcmToken — byte-identical to pre-FCM behavior. Nothing about the
+// existing subscribe/unsubscribe flow, state machine, or return shape
+// changes.
 
 import { useState, useEffect, useCallback } from "react";
+import { getFcmToken } from "@/lib/firebase/client";
 
 export type PushState =
     | "unsupported"
@@ -84,6 +94,17 @@ export function usePushNotifications() {
                 applicationServerKey: urlBase64ToUint8Array(vapidKey),
             }));
 
+            // NEW (additive): attempt FCM token acquisition using the SAME
+            // registration. Never blocks or fails the existing Web Push
+            // subscribe flow — a rejected/unavailable FCM token simply
+            // means this field is omitted below.
+            let fcmToken: string | null = null;
+            try {
+                fcmToken = await getFcmToken(registration);
+            } catch (err) {
+                console.warn("[Push] FCM token acquisition failed (non-fatal):", err);
+            }
+
             const res = await fetch("/api/push/subscribe", {
                 method:      "POST",
                 credentials: "include",
@@ -92,6 +113,7 @@ export function usePushNotifications() {
                     endpoint:  sub.endpoint,
                     keys:      sub.toJSON().keys,
                     userAgent: navigator.userAgent,
+                    ...(fcmToken ? { fcmToken } : {}),
                 }),
             });
 

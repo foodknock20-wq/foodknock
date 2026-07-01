@@ -11,6 +11,20 @@
 //
 // Adding Email/WhatsApp/FCM later = write a provider implementing
 // DeliveryProvider, register it below. No business code changes.
+//
+// Only change from the uploaded original: two entries added to
+// EVENT_DEFAULT_CHANNELS for "loyalty.points_credited" and
+// "referral.reward_granted" — both event names ALREADY EXISTED in the
+// .listen() array below (byte-identical to the uploaded original; not
+// modified). Without these two default-channel entries, now that
+// loyaltyService.ts actually emits them, they would fall through to
+// defaultChannelsFor()'s "every registered provider" fallback and be
+// attempted against emailDeliveryProvider.ts's and whatsappProvider.ts's
+// switch statements, which do not recognize these `kind` values in their
+// local discriminated unions and would hit their `default: never`
+// exhaustiveness branch — a real type-safety defect in those files. Pinning
+// both to push-only here (same pattern as every other push-only event
+// above them) prevents that without touching either provider file.
 
 import { notificationEvents } from "./events/emitter";
 import { notificationTemplates } from "./templates";
@@ -57,6 +71,12 @@ const EVENT_DEFAULT_CHANNELS: Partial<Record<NotificationEventName, Notification
     // this one-line change is sufficient and verified-safe — no other
     // file needs to change for this event to start reaching WhatsApp.
     "order.delivered": ["push", "whatsapp"],
+    // NEW — see file header. loyalty.points_credited / referral.reward_granted
+    // already existed as declared, listened-to event names; only the
+    // default-channel pinning was missing. Push-only: neither provider
+    // (email/whatsapp) has a matching case for these kinds.
+    "loyalty.points_credited": ["push"],
+    "referral.reward_granted": ["push"],
     // Phase 4 — email-only events; no push template makes sense for either.
     //
     // auth.otp_requested is DELIBERATELY left as ["email"] here, even
@@ -259,6 +279,9 @@ if (process.env.NODE_ENV !== "production") {
 notificationEngine.registerProvider(webPushProvider);
 notificationEngine.registerProvider(emailDeliveryProvider);
 notificationEngine.registerProvider(whatsappProvider);
+// UNCHANGED — byte-identical to the uploaded original. Both
+// "loyalty.points_credited" and "referral.reward_granted" were already
+// present here before any change in this task.
 notificationEngine.listen([
     "push.campaign",
     "admin.broadcast",

@@ -13,10 +13,24 @@
 // pattern:
 //   1. $inc User.loyaltyPoints  (atomic single-document operation)
 //   2. Write the LoyaltyLedger entry
+//
+// ── NOTIFICATION WIRING ──────────────────────────────────────────────────
+// handleOrderDelivered() is the ONLY place order-reward and referral
+// credits are ever granted — which makes it the single correct place to
+// emit the corresponding notification events. "loyalty.points_credited"
+// and "referral.reward_granted" already existed as declared event names
+// in notifications/types.ts and were already listened to in
+// notifications/engine.ts — this file previously never called
+// notificationEngine.emit() for them at all. Emits below are
+// fire-and-forget and error-isolated (mirrors the exact pattern
+// createOrderCore.ts already uses for its own order.placed emit): a
+// notification failure must never affect point crediting, which has
+// already succeeded by the time each emit() call runs.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import User          from "@/models/User";
 import LoyaltyLedger, { LedgerType } from "@/models/LoyaltyLedger";
+import { notificationEngine } from "@/lib/notifications";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 export const LOYALTY_CONFIG = {
@@ -131,6 +145,11 @@ export async function awardPoints(opts: AwardOptions): Promise<void> {
 // NOT the short display orderId like "FK-XXXX". Passing the wrong id causes
 // the ledger entry to silently store null for the order reference, which
 // breaks the idempotency guard and the transaction history display.
+//
+// Deliberately does NOT emit a notification — redemption is a debit the
+// user themselves just actively triggered at checkout (they see the result
+// immediately in the checkout UI); it isn't a "surprise credit" the way
+// order_reward/referral credits are.
 
 export interface RedeemOptions {
     userId:        string;
@@ -215,13 +234,27 @@ export async function handleOrderDelivered(orderId: string): Promise<void> {
 
     // Award order_reward
     if (earnedPoints > 0) {
-        await _applyPoints({
+        const note = `Earned on delivered order — ₹${orderTotal}`;
+        const balanceAfter = await _applyPoints({
             userId,
             delta:        earnedPoints,
             type:         "order_reward",
             orderMongoId: orderId,   // orderId here IS the MongoDB _id (passed from admin route)
-            note:         `Earned on delivered order — ₹${orderTotal}`,
+            note,
         });
+
+        // NEW: notify the user their points were credited. Fire-and-forget,
+        // error-isolated — a notification failure must never affect point
+        // crediting, which has already succeeded above.
+        try {
+            notificationEngine.emit({
+                name: "loyalty.points_credited",
+                data: { points: earnedPoints, balance: balanceAfter, note },
+                target: { userId },
+            });
+        } catch (notifyErr) {
+            console.error("LOYALTY_POINTS_CREDITED_NOTIFY_ERROR", notifyErr);
+        }
     } else {
         await LoyaltyLedger.create({
             user:         userId,
@@ -262,6 +295,17 @@ export async function handleOrderDelivered(orderId: string): Promise<void> {
         note:            "Welcome bonus — joined via referral",
     });
 
+    // NEW: notify the referee.
+    try {
+        notificationEngine.emit({
+            name: "referral.reward_granted",
+            data: { points: LOYALTY_CONFIG.REFEREE_REWARD, role: "referee" },
+            target: { userId },
+        });
+    } catch (notifyErr) {
+        console.error("REFERRAL_REWARD_REFEREE_NOTIFY_ERROR", notifyErr);
+    }
+
     await _applyPoints({
         userId:          referrerId,
         delta:           LOYALTY_CONFIG.REFERRER_REWARD,
@@ -270,4 +314,16 @@ export async function handleOrderDelivered(orderId: string): Promise<void> {
         referredUserId:  userId,
         note:            "Referral reward — your friend's first order was delivered",
     });
+
+    // NEW: notify the referrer — a distinct user, distinct target.userId,
+    // distinct copy (role: "referrer").
+    try {
+        notificationEngine.emit({
+            name: "referral.reward_granted",
+            data: { points: LOYALTY_CONFIG.REFERRER_REWARD, role: "referrer" },
+            target: { userId: referrerId },
+        });
+    } catch (notifyErr) {
+        console.error("REFERRAL_REWARD_REFERRER_NOTIFY_ERROR", notifyErr);
+    }
 }

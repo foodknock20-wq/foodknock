@@ -14,9 +14,15 @@
 // is a separate, later feature), so this path is inert today and becomes
 // live automatically the moment that feature starts populating it. No
 // changes to this file will be needed when that happens.
+//
+// NEW: an individual delete affordance. A small icon-button in the same
+// footer row as CTA buttons (not a swipe gesture, which would require new
+// touch-gesture plumbing this component doesn't have). `onDelete` is
+// optional so this component still renders correctly anywhere it might be
+// reused without a delete handler wired up.
 
 import { motion } from "framer-motion";
-import { Bell, ShoppingBag, ChefHat, Bike, CheckCircle2, Sparkles, Flame } from "lucide-react";
+import { Bell, ShoppingBag, ChefHat, Bike, CheckCircle2, Sparkles, Flame, Trash2 } from "lucide-react";
 import { cdnImage } from "@/lib/cdnImage";
 import { CATEGORY_DISPLAY, PRIORITY_DISPLAY } from "@/lib/notifications/categoryDisplay";
 import type { InboxNotificationItem } from "@/lib/notifications/inboxQuery";
@@ -56,9 +62,11 @@ type Props = {
     onClick: () => void;
     /** Called when a specific CTA button is tapped, with that button's own URL — independent of the card's main onClick/url, since e.g. order.delivered has two buttons pointing at two different places. */
     onCtaClick: (url: string) => void;
+    /** NEW: called when the delete button is tapped, with this item's id. Optional so other consumers of this component don't break if they don't wire it. */
+    onDelete?: (id: string) => void;
 };
 
-export default function NotificationCard({ item, group, onClick, onCtaClick }: Props) {
+export default function NotificationCard({ item, group, onClick, onCtaClick, onDelete }: Props) {
     const config = EVENT_ICON_CONFIG[item.event] ?? DEFAULT_ICON_CONFIG;
     const Icon = config.icon;
     const unread = !item.isRead;
@@ -160,21 +168,37 @@ export default function NotificationCard({ item, group, onClick, onCtaClick }: P
                 )}
             </button>
 
-            {/* CTA buttons — each navigates to its own url independently of the card's main onClick */}
-            {item.ctaButtons.length > 0 && (
-                <div className="flex gap-2 border-t border-stone-100 px-3.5 py-2.5">
-                    {item.ctaButtons.map((cta) => (
+            {/* Footer row: CTA buttons (left) + delete button (right) — only
+                rendered as a footer bar when there's something to put in it */}
+            {(item.ctaButtons.length > 0 || onDelete) && (
+                <div className="flex items-center justify-between gap-2 border-t border-stone-100 px-3.5 py-2.5">
+                    <div className="flex flex-wrap gap-2">
+                        {item.ctaButtons.map((cta) => (
+                            <button
+                                key={cta.id}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onCtaClick(cta.url || item.url);
+                                }}
+                                className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-600 transition-colors hover:bg-orange-100"
+                            >
+                                {cta.label}
+                            </button>
+                        ))}
+                    </div>
+
+                    {onDelete && (
                         <button
-                            key={cta.id}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onCtaClick(cta.url || item.url);
+                                onDelete(item.id);
                             }}
-                            className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1.5 text-[11px] font-bold text-orange-600 transition-colors hover:bg-orange-100"
+                            aria-label="Delete notification"
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-stone-300 transition-colors hover:bg-red-50 hover:text-red-500"
                         >
-                            {cta.label}
+                            <Trash2 size={13} />
                         </button>
-                    ))}
+                    )}
                 </div>
             )}
         </motion.div>
