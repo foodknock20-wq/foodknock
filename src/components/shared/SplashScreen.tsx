@@ -2,39 +2,55 @@
 
 // src/components/shared/SplashScreen.tsx
 //
-// FoodKnock — premium startup splash screen (Paytm/Blinkit/Swiggy/Zomato/
-// PhonePe-tier polish, FoodKnock's own orange/white branding).
+// FoodKnock — cinematic startup splash with a seamless dissolve handoff
+// into the home screen (Apple/CRED/Arc/Nothing-tier polish, FoodKnock's
+// own orange/white branding, real brand logo).
 //
-// ARCHITECTURE NOTE: Next.js App Router's loading.tsx only covers
-// route-segment Suspense boundaries during navigation — it does NOT cover
-// true first-load app initialization/hydration, which is what this splash
-// is for. This is therefore a small, always-mounted client overlay in the
-// root layout, the same established pattern as NotificationPrompt and
-// OfflineOverlay in this codebase. It has zero dependency on and zero
-// effect on business logic, auth, orders, notifications, or the service
-// worker — it only reads document/window readiness signals and renders
-// a decorative overlay on top of whatever mounts underneath it.
+// ARCHITECTURE: unchanged from the previous version — a small, always-
+// mounted client overlay in the root layout (same pattern as
+// NotificationPrompt/OfflineOverlay). Zero dependency on and zero effect
+// on business logic, auth, orders, notifications, or the service worker.
+// Renders identically on server and first client paint (fully visible,
+// "loading" phase) — no hydration mismatch, since nothing about initial
+// markup depends on any client-only value.
 //
-// NO HYDRATION MISMATCH: the splash renders visible by DEFAULT on both
-// the server and the first client render (identical markup either side),
-// so React never has anything to reconcile-diff here. It only becomes
-// invisible after a client-only `useEffect` confirms real readiness —
-// exactly the kind of state change that's supposed to happen after
-// hydration, not during it.
+// NO FAKE DELAY: readiness is still derived from real signals only —
+// document.readyState === "complete" (or `load`) AND document.fonts.ready.
+// If the app is already fully loaded when this effect runs, the dissolve
+// begins almost immediately. There is no hardcoded setTimeout wait.
 //
-// NO FAKE DELAY: readiness is derived from real signals —
-// `document.readyState === "complete"` (or the `load` event firing) AND
-// `document.fonts.ready` (so the wordmark never flashes an unstyled
-// fallback font mid-fade). If the app is already fully loaded by the time
-// this effect runs (fast connection, warm cache), the splash fades almost
-// immediately. If initialization takes longer, it stays visible until
-// those real signals fire — never a hardcoded setTimeout(..., 2500).
+// ── THE HANDOFF (why this isn't "just a fade") ────────────────────────
+// Three independently-timed layers, deliberately overlapping so there is
+// never one single visible "cut":
+//   1. CONTENT layer (logo, wordmark, tagline, loader) dissolves first —
+//      blur-out + scale-up + fade, ~650ms.
+//   2. BLOOM layer (the glow behind the logo) EXPANDS and brightens
+//      rather than just fading, ~750ms, starting alongside the content
+//      dissolve — this is the "light spreads" moment.
+//   3. VEIL layer (the background wash) fades LAST, after a short delay,
+//      over ~850ms — so the home screen underneath (already mounted and
+//      genuinely rendering the whole time, not a simulated second screen)
+//      becomes visible THROUGH the thinning veil while the bloom is still
+//      resolving on top of it. That overlap is what reads as one
+//      continuous event rather than two screens swapping.
+// The moment the dissolve begins, the whole overlay switches to
+// `pointer-events: none` — home is interactive immediately, before the
+// visual animation has even finished.
 //
-// ANIMATION: pure `transform`/`opacity` transitions only (GPU-accelerated,
-// no layout-triggering properties), respects `prefers-reduced-motion` by
-// swapping every animation for an instant/near-instant fade.
+// PERFORMANCE: only transform/opacity/filter are ever animated (GPU
+// compositable). `filter: blur()` is used sparingly — only on the content
+// layer, only once, only for the ~650ms dissolve — never as a continuous
+// idle-state animation, so this stays smooth at 90/120Hz. `will-change`
+// is applied only to elements that are actively mid-animation and removed
+// once settled.
+//
+// REDUCED MOTION: identical visual design (logo, glow, wordmark, loader)
+// — every transform-based motion (breathing, floating, blur-dissolve,
+// bloom-expand) is replaced with a plain, fast opacity fade instead.
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
+type Phase = "loading" | "dissolving" | "hidden";
 
 function useReducedMotion(): boolean {
     const [reduced, setReduced] = useState(false);
@@ -48,7 +64,7 @@ function useReducedMotion(): boolean {
     return reduced;
 }
 
-/** Resolves once the document is fully loaded AND web fonts have settled — the two real "app is actually ready to look right" signals, no artificial waiting involved. */
+/** Resolves once the document is fully loaded AND web fonts have settled. */
 function waitForAppReady(): Promise<void> {
     return new Promise((resolve) => {
         const fontsReady =
@@ -67,120 +83,191 @@ function waitForAppReady(): Promise<void> {
     });
 }
 
-const FADE_OUT_MS = 480;
+const LOGO_SRC = "/logo/logo.jpg"; // Same asset Navbar.tsx uses — pixel-identical brand mark.
+
+// Total time from "dissolve starts" to "fully removed from DOM" — the
+// veil (the slowest layer) determines this ceiling.
+const VEIL_FADE_MS = 850;
+const VEIL_DELAY_MS = 180;
+const TOTAL_DISSOLVE_MS = VEIL_DELAY_MS + VEIL_FADE_MS;
 
 export default function SplashScreen() {
-    // Visible by default on BOTH server and first client render — this is
-    // what guarantees zero hydration mismatch (see file header).
-    const [ready, setReady] = useState(false);
-    const [unmounted, setUnmounted] = useState(false);
+    const [phase, setPhase] = useState<Phase>("loading");
     const reducedMotion = useReducedMotion();
     const unmountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         let cancelled = false;
-
         waitForAppReady().then(() => {
-            if (cancelled) return;
-            setReady(true);
+            if (!cancelled) setPhase("dissolving");
         });
-
         return () => {
             cancelled = true;
         };
     }, []);
 
     useEffect(() => {
-        if (!ready) return;
-        // Remove from the DOM entirely once the fade-out transition
-        // finishes — prevents the (now invisible) overlay from continuing
-        // to sit in the accessibility tree or intercept any stray pointer
-        // events during the transition.
-        unmountTimerRef.current = setTimeout(
-            () => setUnmounted(true),
-            reducedMotion ? 60 : FADE_OUT_MS
-        );
+        if (phase !== "dissolving") return;
+        const totalMs = reducedMotion ? 220 : TOTAL_DISSOLVE_MS;
+        unmountTimerRef.current = setTimeout(() => setPhase("hidden"), totalMs);
         return () => {
             if (unmountTimerRef.current) clearTimeout(unmountTimerRef.current);
         };
-    }, [ready, reducedMotion]);
+    }, [phase, reducedMotion]);
 
-    if (unmounted) return null;
+    const dissolving = phase === "dissolving";
+
+    if (phase === "hidden") return null;
 
     return (
         <div
-            aria-hidden={ready}
-            role={ready ? undefined : "status"}
-            aria-label={ready ? undefined : "FoodKnock is loading"}
-            className="fixed inset-0 z-[9999] flex items-center justify-center bg-white"
+            aria-hidden={dissolving}
+            role={dissolving ? undefined : "status"}
+            aria-label={dissolving ? undefined : "FoodKnock is loading"}
+            className="fixed inset-0 z-[9999] flex items-center justify-center overflow-hidden"
             style={{
-                opacity: ready ? 0 : 1,
-                transition: reducedMotion
-                    ? "opacity 60ms linear"
-                    : `opacity ${FADE_OUT_MS}ms cubic-bezier(0.4, 0, 0.2, 1)`,
-                pointerEvents: ready ? "none" : "auto",
+                pointerEvents: dissolving ? "none" : "auto",
                 paddingTop: "env(safe-area-inset-top, 0px)",
                 paddingBottom: "env(safe-area-inset-bottom, 0px)",
                 paddingLeft: "env(safe-area-inset-left, 0px)",
                 paddingRight: "env(safe-area-inset-right, 0px)",
             }}
         >
-            {/* Soft background gradient wash — subtle, never competes with the logo */}
+            {/* ══ LAYER 1 — VEIL (background wash, dissolves LAST) ══ */}
             <div
-                className="pointer-events-none absolute inset-0"
+                className="absolute inset-0"
                 style={{
                     background:
                         "radial-gradient(ellipse at 50% 42%, #FFF7ED 0%, #FFFBF5 55%, #FFFFFF 100%)",
+                    opacity: dissolving ? 0 : 1,
+                    transition: reducedMotion
+                        ? "opacity 200ms ease"
+                        : `opacity ${VEIL_FADE_MS}ms cubic-bezier(0.4, 0, 0.2, 1) ${VEIL_DELAY_MS}ms`,
+                    willChange: dissolving ? "opacity" : undefined,
                 }}
                 aria-hidden="true"
             />
 
-            <div className="relative flex flex-col items-center px-6">
-                {/* ── Logo + pulsing glow ── */}
-                <div className="relative mb-7 flex h-[104px] w-[104px] items-center justify-center sm:h-[120px] sm:w-[120px]">
-                    {/* Pulsing orange glow behind the logo */}
+            {/* ══ Ambient floating particles — idle only, never during dissolve ══ */}
+            {!reducedMotion && (
+                <>
+                    <span
+                        className="absolute rounded-full"
+                        style={{
+                            top: "22%",
+                            left: "18%",
+                            width: 90,
+                            height: 90,
+                            background: "radial-gradient(circle, #FFD9B3 0%, transparent 70%)",
+                            opacity: dissolving ? 0 : 0.5,
+                            transform: "translateZ(0)",
+                            animation: dissolving ? "none" : "fkSplashFloat1 6.5s ease-in-out infinite",
+                            transition: "opacity 380ms ease",
+                            willChange: "transform, opacity",
+                        }}
+                        aria-hidden="true"
+                    />
+                    <span
+                        className="absolute rounded-full"
+                        style={{
+                            bottom: "20%",
+                            right: "16%",
+                            width: 110,
+                            height: 110,
+                            background: "radial-gradient(circle, #FFC98A 0%, transparent 70%)",
+                            opacity: dissolving ? 0 : 0.4,
+                            animation: dissolving ? "none" : "fkSplashFloat2 7.8s ease-in-out infinite",
+                            transition: "opacity 380ms ease",
+                            willChange: "transform, opacity",
+                        }}
+                        aria-hidden="true"
+                    />
+                    <span
+                        className="absolute rounded-full"
+                        style={{
+                            top: "62%",
+                            left: "12%",
+                            width: 56,
+                            height: 56,
+                            background: "radial-gradient(circle, #FFEAD1 0%, transparent 70%)",
+                            opacity: dissolving ? 0 : 0.45,
+                            animation: dissolving ? "none" : "fkSplashFloat3 5.6s ease-in-out infinite",
+                            transition: "opacity 380ms ease",
+                            willChange: "transform, opacity",
+                        }}
+                        aria-hidden="true"
+                    />
+                </>
+            )}
+
+            {/* ══ LAYER 2 — CONTENT (logo, wordmark, tagline, loader) ══ */}
+            <div
+                className="relative flex flex-col items-center px-6"
+                style={{
+                    opacity: dissolving ? 0 : 1,
+                    filter: dissolving ? "blur(14px)" : "blur(0px)",
+                    transform: dissolving ? "scale(1.07) translateY(-4px)" : "scale(1) translateY(0)",
+                    transition: reducedMotion
+                        ? "opacity 220ms ease"
+                        : "opacity 620ms cubic-bezier(0.4, 0, 0.2, 1), filter 620ms cubic-bezier(0.4, 0, 0.2, 1), transform 620ms cubic-bezier(0.4, 0, 0.2, 1)",
+                    willChange: dissolving ? "opacity, filter, transform" : undefined,
+                }}
+            >
+                {/* ── Logo + bloom ── */}
+                <div className="relative mb-7 flex h-[108px] w-[108px] items-center justify-center sm:h-[126px] sm:w-[126px]">
+                    {/* ══ LAYER 2b — BLOOM (expands + brightens on dissolve) ══ */}
                     <span
                         className="absolute inset-0 -m-6 rounded-full"
                         style={{
                             background: "radial-gradient(circle, #FFB347 0%, transparent 72%)",
-                            opacity: 0.55,
-                            animation: reducedMotion
-                                ? "none"
-                                : "fkSplashGlowPulse 2.2s ease-in-out infinite",
+                            opacity: dissolving ? 0.9 : 0.55,
+                            transform: dissolving
+                                ? "scale(2.4)"
+                                : reducedMotion
+                                ? "scale(1)"
+                                : undefined,
+                            animation:
+                                !dissolving && !reducedMotion
+                                    ? "fkSplashGlowPulse 2.6s ease-in-out infinite"
+                                    : "none",
+                            transition: dissolving
+                                ? "transform 750ms cubic-bezier(0.16, 1, 0.3, 1), opacity 750ms cubic-bezier(0.16, 1, 0.3, 1) 280ms"
+                                : undefined,
                             willChange: "transform, opacity",
                         }}
                         aria-hidden="true"
                     />
 
-                    {/* Logo mark — fades in, scales 0.9 → 1 */}
+                    {/* Logo mark — real brand asset, subtle depth + float */}
                     <div
-                        className="relative flex h-full w-full items-center justify-center rounded-[28px] shadow-xl"
+                        className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[28px]"
                         style={{
-                            background: "linear-gradient(135deg, #FF5C1A 0%, #FFB347 100%)",
-                            boxShadow: "0 20px 48px rgba(255,92,26,0.32)",
+                            boxShadow:
+                                "0 24px 56px rgba(255,92,26,0.30), 0 2px 8px rgba(120,53,15,0.12), inset 0 1px 1px rgba(255,255,255,0.5), inset 0 -1px 3px rgba(154,52,18,0.15)",
                             animation: reducedMotion
-                                ? "fkSplashLogoInReduced 0.3s ease-out both"
-                                : "fkSplashLogoIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both",
+                                ? "fkSplashLogoInReduced 0.32s ease-out both"
+                                : "fkSplashLogoIn 0.75s cubic-bezier(0.16, 1, 0.3, 1) both, fkSplashLogoFloat 4.2s ease-in-out 0.9s infinite",
                             willChange: "transform, opacity",
                         }}
                     >
-                        {/* Simple, brand-accurate mark: a stylized "F" knot —
-                            deliberately typographic/geometric rather than an
-                            <img>, so the splash has zero network dependency
-                            and can never itself be the thing waiting to load. */}
-                        <svg
-                            width="52"
-                            height="52"
-                            viewBox="0 0 52 52"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                            className="sm:h-[60px] sm:w-[60px]"
-                        >
-                            <path
-                                d="M14 10h24a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H20v8h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H20v10a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2Z"
-                                fill="white"
-                            />
-                        </svg>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                            src={LOGO_SRC}
+                            alt="FoodKnock"
+                            width={126}
+                            height={126}
+                            fetchPriority="high"
+                            className="h-full w-full object-cover"
+                        />
+                        {/* Soft inner glow sheen for premium depth */}
+                        <div
+                            className="pointer-events-none absolute inset-0"
+                            style={{
+                                background:
+                                    "linear-gradient(155deg, rgba(255,255,255,0.28) 0%, transparent 40%, rgba(120,53,15,0.06) 100%)",
+                            }}
+                            aria-hidden="true"
+                        />
                     </div>
                 </div>
 
@@ -191,7 +278,7 @@ export default function SplashScreen() {
                         fontFamily: "'Playfair Display', Georgia, serif",
                         animation: reducedMotion
                             ? "fkSplashTextInReduced 0.3s ease-out 0.05s both"
-                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.18s both",
+                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.2s both",
                     }}
                 >
                     FoodKnock
@@ -203,35 +290,42 @@ export default function SplashScreen() {
                     style={{
                         animation: reducedMotion
                             ? "fkSplashTextInReduced 0.3s ease-out 0.1s both"
-                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.32s both",
+                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.34s both",
                     }}
                 >
                     Fresh in Minutes
                 </p>
 
-                {/* ── Loading dots — continuous, only while not ready ── */}
+                {/* ── Loading indicator — a slow rotating gradient ring,
+                    timed in step with the bloom pulse so it never feels
+                    like a separate, disconnected element ── */}
                 <div
-                    className="mt-9 flex items-center gap-1.5"
+                    className="mt-9 flex items-center justify-center"
                     style={{
                         animation: reducedMotion
                             ? "fkSplashTextInReduced 0.3s ease-out 0.14s both"
-                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.46s both",
+                            : "fkSplashTextIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.48s both",
                     }}
                 >
-                    {[0, 1, 2].map((i) => (
-                        <span
-                            key={i}
-                            className="h-2 w-2 rounded-full"
+                    <div
+                        className="relative h-6 w-6"
+                        style={{
+                            animation: reducedMotion ? "none" : "fkSplashRingSpin 1.3s linear infinite",
+                            opacity: reducedMotion ? 0.7 : 1,
+                            willChange: reducedMotion ? undefined : "transform",
+                        }}
+                    >
+                        <div
+                            className="h-full w-full rounded-full"
                             style={{
-                                background: "linear-gradient(135deg, #FF5C1A, #FFB347)",
-                                animation: reducedMotion
-                                    ? "none"
-                                    : `fkSplashDotBounce 1.1s ease-in-out ${i * 0.15}s infinite`,
-                                opacity: reducedMotion ? 0.6 : undefined,
-                                willChange: "transform, opacity",
+                                background:
+                                    "conic-gradient(from 0deg, #FF5C1A 0%, #FFB347 35%, transparent 70%, transparent 100%)",
+                                WebkitMask:
+                                    "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))",
+                                mask: "radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 3px))",
                             }}
                         />
-                    ))}
+                    </div>
                 </div>
             </div>
 
@@ -249,6 +343,10 @@ export default function SplashScreen() {
                 @keyframes fkSplashLogoInReduced {
                     from { opacity: 0; }
                     to   { opacity: 1; }
+                }
+                @keyframes fkSplashLogoFloat {
+                    0%, 100% { transform: translateY(0); }
+                    50%      { transform: translateY(-5px); }
                 }
                 @keyframes fkSplashTextIn {
                     0% {
@@ -270,19 +368,25 @@ export default function SplashScreen() {
                         opacity: 0.45;
                     }
                     50% {
-                        transform: scale(1.12);
-                        opacity: 0.65;
+                        transform: scale(1.14);
+                        opacity: 0.68;
                     }
                 }
-                @keyframes fkSplashDotBounce {
-                    0%, 80%, 100% {
-                        transform: translateY(0) scale(0.85);
-                        opacity: 0.5;
-                    }
-                    40% {
-                        transform: translateY(-6px) scale(1);
-                        opacity: 1;
-                    }
+                @keyframes fkSplashRingSpin {
+                    from { transform: rotate(0deg); }
+                    to   { transform: rotate(360deg); }
+                }
+                @keyframes fkSplashFloat1 {
+                    0%, 100% { transform: translate(0, 0); }
+                    50%      { transform: translate(10px, -14px); }
+                }
+                @keyframes fkSplashFloat2 {
+                    0%, 100% { transform: translate(0, 0); }
+                    50%      { transform: translate(-12px, 10px); }
+                }
+                @keyframes fkSplashFloat3 {
+                    0%, 100% { transform: translate(0, 0); }
+                    50%      { transform: translate(8px, 12px); }
                 }
             `}</style>
         </div>
