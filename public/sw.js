@@ -39,26 +39,12 @@ self.addEventListener("fetch", (event) => {
  * browser's Push API event.data.json() parsed to. Two genuinely different
  * wire shapes reach this function depending on delivery transport:
  *
- * 1. FCM (Firebase Cloud Messaging) — confirmed via direct debug capture:
- *    { data: { payload: "<json-string>" }, fcmMessageId, priority, ... }
- *    Firebase wraps the data-only message in its own envelope; the actual
- *    NotificationPayload we sent is a JSON STRING nested two levels deep,
- *    at parsed.data.payload — NOT parsed.payload.
- *
- * 2. Raw Web Push (VAPID, via the `web-push` npm package) — sent directly:
- *    webPushProvider.ts calls webpush.sendNotification(sub, JSON.stringify(payload)),
- *    so event.data.json() IS the payload object itself, no wrapper at all.
- *    Detected by the presence of `title`/`body` directly on the parsed object.
- *
- * A defensive flat { payload: "<json-string>" } case is also handled in
- * case a future Firebase SDK version or alternate send path ever changes
- * the envelope shape — this keeps both transports working without either
- * one assuming the other's shape.
+ * 1. FCM — { data: { payload: "<json-string>" }, fcmMessageId, priority, ... }
+ * 2. Raw Web Push — the payload object sent directly, no wrapper.
  */
 function extractNotificationPayload(rawParsed) {
     if (!rawParsed || typeof rawParsed !== "object") return null;
 
-    // Case 1: FCM's actual wire envelope — confirmed via debug capture.
     if (rawParsed.data && typeof rawParsed.data.payload === "string") {
         try {
             return JSON.parse(rawParsed.data.payload);
@@ -67,7 +53,6 @@ function extractNotificationPayload(rawParsed) {
         }
     }
 
-    // Case 2: defensive fallback — flat { payload: "<json-string>" }.
     if (typeof rawParsed.payload === "string") {
         try {
             return JSON.parse(rawParsed.payload);
@@ -76,12 +61,52 @@ function extractNotificationPayload(rawParsed) {
         }
     }
 
-    // Case 3: raw Web Push — payload object sent directly, unwrapped.
     if (typeof rawParsed.title === "string" || typeof rawParsed.body === "string") {
         return rawParsed;
     }
 
     return null;
+}
+
+// ── Click-destination allowlist ────────────────────────────────────────
+// Only these base routes are ever navigated to. Any other route in a
+// payload — malformed, unexpected, or from a future template someone
+// forgot to whitelist — falls back to "/" rather than producing an
+// unpredictable navigation. Dynamic sub-paths under an allowed base
+// (e.g. "/my-orders/FK-1234", "/track-order/FK-1234") are permitted via
+// prefix match, since order/track notifications legitimately need a
+// specific order id in the path.
+const ALLOWED_ROUTE_BASES = [
+    "/",
+    "/menu",
+    "/my-orders",
+    "/track-order",
+    "/reviews",
+    "/cart",
+    "/loyalty",
+];
+
+/**
+ * Validates and normalizes a notification's target URL against
+ * ALLOWED_ROUTE_BASES. Returns a same-origin, allowlisted pathname —
+ * always "/" for anything that doesn't match.
+ */
+function resolveSafeUrl(rawUrl) {
+    let pathname;
+    try {
+        pathname = new URL(rawUrl || "/", self.location.origin).pathname;
+    } catch {
+        return "/";
+    }
+
+    if (pathname === "/") return "/";
+
+    const isAllowed = ALLOWED_ROUTE_BASES.some((base) => {
+        if (base === "/") return false;
+        return pathname === base || pathname.startsWith(base + "/");
+    });
+
+    return isAllowed ? pathname : "/";
 }
 
 self.addEventListener("push", (event) => {
@@ -103,31 +128,27 @@ self.addEventListener("push", (event) => {
         }
     } catch { }
 
-    // Default actions preserve existing campaign-notification behavior
-    // exactly as before. When the Notification Engine sends a payload with
-    // its own `actions` array (transactional order-status notifications),
-    // those are used instead — this is the only behavioral branch added.
+    // Validate the URL at RECEIVE time — event.notification.data.url is
+    // always already safe by the time notificationclick reads it.
+    const safeUrl = resolveSafeUrl(data.url);
+
     const defaultActions = [
         { action: "order", title: "Order Now 🍔" },
         { action: "dismiss", title: "Later" },
     ];
 
-    // FIX (Problem 3 — notification overwrite/collapse): a static shared
-    // fallback tag ("foodknock-promo") meant EVERY notification without an
-    // explicit tag replaced the previous one in the tray — order.placed,
-    // order.preparing, order.out_for_delivery, order.delivered, and loyalty
-    // credits all lack an explicit `tag` in their templates, so they all
-    // shared one slot. A unique-per-notification fallback tag means each
-    // one gets its own tray entry unless a payload DELIBERATELY sets its
-    // own tag (still fully supported — e.g. for future intentional
-    // marketing-notification dedup).
+    // Unique-per-notification fallback tag so sequential notifications
+    // (order placed → preparing → out for delivery → delivered) each get
+    // their own tray entry instead of overwriting each other. A payload
+    // that DELIBERATELY sets its own tag (e.g. for intentional marketing
+    // dedup) is still fully respected.
     const fallbackTag = "foodknock-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
 
     const options = {
         body: data.body,
         icon: data.icon,
         badge: data.badge,
-        data: { url: data.url },
+        data: { url: safeUrl },
         vibrate: [150, 50, 150],
         requireInteraction: false,
         tag: data.tag || fallbackTag,
@@ -135,38 +156,101 @@ self.addEventListener("push", (event) => {
         actions: Array.isArray(data.actions) && data.actions.length > 0
             ? data.actions
             : defaultActions,
-        // Rich Notifications (Feature 3) — large hero/banner image, shown
-        // by Chrome/Android when present. Omitted entirely (not even set
-        // to undefined) when the payload has no image, so a notification
-        // without one renders exactly as before this was added.
         ...(data.image ? { image: data.image } : {}),
     };
 
     event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
+// ── Production-grade click handler ─────────────────────────────────────
+// Every click ends in navigation — never a silent close, never a
+// duplicate tab, never a race condition.
+//
+// Sequence:
+//   1. Resolve the safe target URL (already validated at push-time;
+//      re-validated here as defense in depth).
+//   2. List every window client this SW controls, INCLUDING uncontrolled
+//      ones (a tab opened before this SW activated, or a TWA WebView
+//      that registers slightly differently) — required to reliably find
+//      an open FoodKnock window across Chrome Android / PWA / TWA.
+//   3. Prefer a client ALREADY AT the target URL — if one exists, just
+//      focus it (no re-navigation needed, avoids a pointless reload).
+//   4. Otherwise, prefer any same-origin client — focus it, then
+//      navigate it. If navigate() isn't supported or throws, fall
+//      through to openWindow() so navigation ALWAYS happens.
+//   5. If no matching window exists at all (app fully closed / cold
+//      start from notification), openWindow() directly to the target.
+// Exactly ONE of focus+navigate OR openWindow ever runs per click — this
+// is what eliminates both "double tabs" and "silent close with no nav".
 self.addEventListener("notificationclick", (event) => {
     event.notification.close();
 
     if (event.action === "dismiss") return;
 
-    const targetUrl = event.notification.data?.url ?? "/menu";
-    const fullUrl = new URL(targetUrl, self.location.origin).href;
+    const safeUrl = resolveSafeUrl(event.notification.data?.url);
+    const fullUrl = new URL(safeUrl, self.location.origin).href;
 
     event.waitUntil(
-        clients.matchAll({ type: "window", includeUncontrolled: true }).then((windowClients) => {
-            for (const client of windowClients) {
-                if (client.url.startsWith(self.location.origin) && "focus" in client) {
-                    client.focus();
-                    if ("navigate" in client) {
-                        return client.navigate(fullUrl);
-                    }
-                    return;
+        (async () => {
+            const windowClients = await clients.matchAll({
+                type: "window",
+                includeUncontrolled: true,
+            });
+
+            const sameOriginClients = windowClients.filter((client) =>
+                client.url.startsWith(self.location.origin)
+            );
+
+            if (sameOriginClients.length === 0) {
+                // App fully closed, or first-ever launch from a
+                // notification — open exactly one new window.
+                if (clients.openWindow) {
+                    await clients.openWindow(fullUrl);
+                }
+                return;
+            }
+
+            // Prefer a client already sitting on the exact target URL —
+            // just focus it, skip a redundant navigate() call entirely.
+            const exactMatch = sameOriginClients.find((client) => {
+                try {
+                    return new URL(client.url).pathname === safeUrl;
+                } catch {
+                    return false;
+                }
+            });
+
+            const target = exactMatch || sameOriginClients[0];
+
+            try {
+                await target.focus();
+            } catch {
+                // focus() can reject in some embedded/TWA WebView contexts
+                // — non-fatal, navigation attempt still proceeds below.
+            }
+
+            if (exactMatch) {
+                // Already on the right page — done, no further action.
+                return;
+            }
+
+            if ("navigate" in target) {
+                try {
+                    await target.navigate(fullUrl);
+                    return; // success — no fallback needed
+                } catch {
+                    // navigate() threw (rare cross-origin edge case, or the
+                    // client closed between matchAll() and here) — fall
+                    // through to openWindow() rather than leaving the
+                    // click unresolved.
                 }
             }
+
+            // navigate() unsupported or failed — still guarantee
+            // navigation via exactly one new window.
             if (clients.openWindow) {
-                return clients.openWindow(fullUrl);
+                await clients.openWindow(fullUrl);
             }
-        })
+        })()
     );
 });

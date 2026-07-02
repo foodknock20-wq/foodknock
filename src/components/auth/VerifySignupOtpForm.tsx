@@ -6,10 +6,14 @@
 // OtpInput reuse) but talks to the signup-specific endpoints and completes
 // with account creation + auto-login + redirect, instead of issuing a
 // password-reset token.
+//
+// UI-ONLY ADDITION: a small amber "check your inbox / spam" info card
+// shown right below the "code sent to email" text — purely presentational,
+// no change to any API call, timer, or verification logic.
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "react-hot-toast";
-import { ArrowLeft, Loader2, XCircle, ShieldCheck, RefreshCw } from "lucide-react";
+import { ArrowLeft, Loader2, XCircle, ShieldCheck, RefreshCw, Mail } from "lucide-react";
 import OtpInput from "./OtpInput";
 
 const RESEND_COOLDOWN_SECONDS = 60;
@@ -155,6 +159,19 @@ export default function VerifySignupOtpForm({ email, onBackToStart }: VerifySign
                 <h3 className="text-lg font-black text-stone-900">Verify your email</h3>
                 <p className="max-w-[320px] text-[13px] leading-relaxed text-stone-500">
                     We sent a 6-digit code to <span className="font-bold text-stone-700">{email}</span>
+                </p>
+            </div>
+
+            {/* ── UI-ONLY: friendly "check inbox / spam" info card ── */}
+            <div className="flex items-start gap-2.5 rounded-2xl border border-amber-200 bg-amber-50/80 px-3.5 py-3 sm:px-4">
+                <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+                    <Mail size={13} className="text-amber-600" strokeWidth={2.2} />
+                </div>
+                <p className="text-[11.5px] font-medium leading-relaxed text-amber-800">
+                    📩 Please wait up to 1 minute for the email to arrive.
+                    If you don&apos;t see it, please check your{" "}
+                    <span className="font-bold">Spam, Promotions, or Updates</span> folder
+                    before requesting another email.
                 </p>
             </div>
 

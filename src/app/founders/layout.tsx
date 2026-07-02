@@ -6,9 +6,9 @@ const BASE_URL = "https://www.foodknock.com";
 
 export const metadata: Metadata = {
     metadataBase: new URL(BASE_URL),
-    title: "Our Founders — Meet the Team Behind FoodKnock",
+    title: "Our Founders — Meet the Two Brothers Behind FoodKnock",
     description:
-        "Meet Manish Kumar and Gaurav Kumawat — the two co-founders of FoodKnock. Learn how their expertise in brand strategy, business operations, and technology built a premium online food ordering platform in Danta, Sikar, Rajasthan.",
+        "Meet Manish Kumar and Gaurav Kumawat — the two founding brothers of FoodKnock. Learn how their combined expertise in brand strategy, business development, and full stack software engineering built a premium online food ordering platform in Danta, Sikar, Rajasthan.",
     alternates: {
         canonical: `${BASE_URL}/founders`,
     },
@@ -16,9 +16,9 @@ export const metadata: Metadata = {
         type: "website",
         url: `${BASE_URL}/founders`,
         siteName: "FoodKnock",
-        title: "Our Founders — Meet the People Building FoodKnock",
+        title: "Our Founders — Meet the Two Brothers Building FoodKnock",
         description:
-            "Two founders. One vision. Meet Manish Kumar and Gaurav Kumawat — the people who built FoodKnock from the ground up in Danta, Rajasthan.",
+            "Two brothers. One vision. Meet Manish Kumar and Gaurav Kumawat — the founders who built FoodKnock from the ground up in Danta, Rajasthan.",
         images: [
             {
                 url: `${BASE_URL}/og-image.png`,
@@ -33,7 +33,7 @@ export const metadata: Metadata = {
         card: "summary_large_image",
         title: "Our Founders — FoodKnock",
         description:
-            "Meet Manish Kumar and Gaurav Kumawat — the two co-founders behind FoodKnock.",
+            "Meet Manish Kumar and Gaurav Kumawat — the two founding brothers behind FoodKnock.",
         images: [`${BASE_URL}/og-image.png`],
     },
     robots: {
@@ -48,11 +48,13 @@ export const metadata: Metadata = {
     },
     keywords: [
         "FoodKnock founders",
+        "FoodKnock two founders",
         "FoodKnock co-founders",
         "Manish Kumar FoodKnock",
         "Gaurav Kumawat FoodKnock",
         "Manish Kumar founder",
         "Gaurav Kumawat founder",
+        "FoodKnock founding brothers",
         "FoodKnock leadership",
         "FoodKnock story",
         "FoodKnock team",

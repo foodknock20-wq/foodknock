@@ -13,83 +13,77 @@ export default function FounderCard({ founder, isActive, onClick }: Props) {
             onClick={onClick}
             aria-expanded={isActive}
             aria-controls={`founder-panel-${founder.id}`}
-            className="group relative w-full overflow-hidden rounded-[28px] text-left outline-none transition-all duration-500 focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2"
+            className="group relative w-full overflow-hidden rounded-[24px] text-left outline-none transition-all duration-300 ease-out focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2 active:scale-[0.995]"
             style={{
                 border: isActive
-                    ? `1.5px solid ${founder.color}70`
-                    : "1.5px solid rgba(255, 200, 140, 0.25)",
+                    ? `1px solid ${founder.color}55`
+                    : "1px solid rgba(0, 0, 0, 0.06)",
                 background: isActive
-                    ? "linear-gradient(145deg, #ffffff 0%, #fffbf2 60%, #fff7e8 100%)"
-                    : "linear-gradient(145deg, #ffffff 0%, #fffdf9 100%)",
-                transform: isActive ? "translateY(-6px) scale(1.015)" : "translateY(0) scale(1)",
+                    ? "linear-gradient(155deg, #ffffff 0%, #fffbf5 100%)"
+                    : "#ffffff",
+                transform: isActive ? "translateY(-3px)" : "translateY(0)",
                 boxShadow: isActive
-                    ? `0 24px 60px -10px ${founder.color}40, 0 8px 20px -8px ${founder.color}30, 0 0 0 1px ${founder.color}18`
-                    : "0 2px 12px rgba(200, 120, 50, 0.07), 0 1px 3px rgba(0,0,0,0.04)",
+                    ? `0 16px 40px -12px ${founder.color}35, 0 4px 12px -4px ${founder.color}20`
+                    : "0 1px 2px rgba(0,0,0,0.04), 0 1px 1px rgba(0,0,0,0.02)",
             }}
         >
-            {/* Warm ambient fill on hover/active */}
+            {/* Ambient fill — quiet, only on hover/active, never both stacking hard */}
             <div
-                className="pointer-events-none absolute inset-0 rounded-[28px] opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+                className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
                 style={{
-                    background: `radial-gradient(ellipse at 70% 10%, ${founder.color}10, transparent 65%)`,
+                    background: `radial-gradient(ellipse at 75% 0%, ${founder.color}08, transparent 60%)`,
                     opacity: isActive ? 1 : undefined,
                 }}
                 aria-hidden="true"
             />
 
-            {/* Top accent line */}
+            {/* Top accent line — thinner, calmer */}
             <div
-                className="absolute left-6 right-6 top-0 h-[2px] rounded-full transition-all duration-500"
+                className="absolute left-7 right-7 top-0 h-px transition-opacity duration-300"
                 style={{
-                    background: isActive
-                        ? `linear-gradient(90deg, transparent, ${founder.color}, transparent)`
-                        : "transparent",
-                    opacity: isActive ? 0.6 : 0,
+                    background: `linear-gradient(90deg, transparent, ${founder.color}90, transparent)`,
+                    opacity: isActive ? 0.7 : 0,
                 }}
                 aria-hidden="true"
             />
 
-            <div className="relative p-6 md:p-7">
+            <div className="relative p-6 sm:p-7">
                 {/* Header row */}
-                <div className="mb-5 flex items-start justify-between gap-3">
+                <div className="mb-6 flex items-start justify-between gap-3">
                     {/* Avatar */}
                     <div
-                        className="relative h-[76px] w-[76px] shrink-0 overflow-hidden rounded-2xl transition-all duration-500"
+                        className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl transition-transform duration-300 ease-out group-hover:scale-[1.02]"
                         style={{
                             border: isActive
-                                ? `2.5px solid ${founder.color}90`
-                                : "2.5px solid rgba(255, 190, 120, 0.2)",
+                                ? `2px solid ${founder.color}70`
+                                : "2px solid rgba(0, 0, 0, 0.06)",
                             boxShadow: isActive
-                                ? `0 8px 28px ${founder.color}35`
-                                : "0 2px 10px rgba(0,0,0,0.06)",
+                                ? `0 6px 18px -4px ${founder.color}40`
+                                : "0 1px 3px rgba(0,0,0,0.06)",
                         }}
                     >
                         <img
                             src={founder.image}
                             alt={founder.name}
-                            className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                            className="h-full w-full object-cover"
                         />
-                        {/* Warm image overlay when active */}
                         {isActive && (
                             <div
-                                className="absolute inset-0 rounded-2xl"
-                                style={{
-                                    background: `linear-gradient(135deg, ${founder.color}12, transparent)`,
-                                }}
+                                className="absolute inset-0"
+                                style={{ background: `linear-gradient(135deg, ${founder.color}0f, transparent)` }}
                             />
                         )}
                     </div>
 
-                    {/* Pillar badge */}
+                    {/* Pillar badge — smaller, quieter type, still clear as a status marker */}
                     <span
-                        className="mt-1 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider transition-all duration-300"
+                        className="mt-0.5 shrink-0 rounded-full px-3 py-1 text-[9.5px] font-black uppercase tracking-[0.14em] transition-colors duration-300"
                         style={{
                             background: isActive
                                 ? `linear-gradient(135deg, ${founder.color}, ${founder.colorAlt})`
-                                : `${founder.color}10`,
+                                : `${founder.color}0c`,
                             color: isActive ? "#ffffff" : founder.color,
-                            border: isActive ? "none" : `1px solid ${founder.color}28`,
-                            boxShadow: isActive ? `0 4px 14px ${founder.color}45` : "none",
+                            boxShadow: isActive ? `0 3px 10px ${founder.color}40` : "none",
                         }}
                     >
                         {founder.pillar}
@@ -98,55 +92,48 @@ export default function FounderCard({ founder, isActive, onClick }: Props) {
 
                 {/* Name */}
                 <h3
-                    className="mb-1 text-[19px] font-black leading-tight tracking-tight text-gray-900 transition-colors duration-300"
-                    style={{
-                        fontFamily: "'Playfair Display', Georgia, serif",
-                        color: isActive ? "#1a1008" : "#111827",
-                    }}
+                    className="mb-1 text-[20px] font-black leading-tight tracking-[-0.01em] text-gray-900"
+                    style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
                 >
                     {founder.name}
                 </h3>
 
                 {/* Role */}
-                <p className="mb-4 text-[12px] font-semibold leading-snug text-gray-400">
+                <p className="mb-4 text-[12px] font-medium leading-snug text-gray-400">
                     {founder.role}
                 </p>
 
-                {/* Short bio */}
-                <p className="text-[13.5px] leading-[1.72] text-gray-600">
+                {/* Short bio — improved measure/leading for readability */}
+                <p className="text-[13.5px] leading-[1.68] text-gray-600">
                     {founder.shortBio}
                 </p>
 
-                {/* CTA row */}
+                {/* CTA row — cleaner rest state, clearer active state */}
                 <div
-                    className="mt-6 flex items-center gap-2 rounded-xl px-4 py-2.5 transition-all duration-300"
+                    className="mt-6 flex items-center gap-2 rounded-xl px-4 py-3 transition-colors duration-300"
                     style={{
-                        background: isActive
-                            ? `linear-gradient(90deg, ${founder.color}12, ${founder.color}06)`
-                            : "rgba(250, 245, 235, 0.5)",
-                        border: isActive
-                            ? `1px solid ${founder.color}22`
-                            : "1px solid rgba(220, 180, 130, 0.15)",
+                        background: isActive ? `${founder.color}0a` : "rgba(0, 0, 0, 0.02)",
+                        border: isActive ? `1px solid ${founder.color}20` : "1px solid rgba(0, 0, 0, 0.04)",
                     }}
                 >
                     <p
-                        className="text-[12px] font-black uppercase tracking-wide transition-colors duration-200"
-                        style={{ color: isActive ? founder.color : "rgba(180, 150, 110, 0.7)" }}
+                        className="text-[11.5px] font-black uppercase tracking-[0.1em] transition-colors duration-200"
+                        style={{ color: isActive ? founder.color : "rgb(120, 113, 108)" }}
                     >
-                        {isActive ? "Profile open ✦" : "View full profile"}
+                        {isActive ? "Profile open" : "View full profile"}
                     </p>
                     <svg
-                        className="ml-auto transition-transform duration-400"
+                        className="ml-auto transition-transform duration-300 ease-out group-hover:translate-x-0.5"
                         style={{
                             transform: isActive ? "rotate(45deg)" : "rotate(0deg)",
-                            color: isActive ? founder.color : "rgba(180, 150, 110, 0.45)",
+                            color: isActive ? founder.color : "rgb(168, 162, 158)",
                         }}
                         width="13"
                         height="13"
                         viewBox="0 0 24 24"
                         fill="none"
                         stroke="currentColor"
-                        strokeWidth="3"
+                        strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                     >

@@ -47,6 +47,22 @@ export type InboxNotificationItem = {
     ctaButtons: InboxCtaButton[];
 };
 
+// Raw shape of a ctaButtons array entry as it actually comes back from
+// .lean() — Mongoose auto-injects an `_id: ObjectId` into every
+// array-of-subdocuments entry unless the subschema sets `{ _id: false }`
+// (NotificationLog's ctaButtons subschema does not). That ObjectId (and
+// its toJSON/Buffer internals) is exactly what triggered the "Only plain
+// objects can be passed to Client Components" error — this type/step is
+// the fix, applied at the one shared serialization boundary both the
+// server page and the API route already go through.
+type RawCtaButton = {
+    id?: unknown;
+    label?: unknown;
+    url?: unknown;
+    _id?: unknown;
+    [key: string]: unknown;
+};
+
 type RawInboxDoc = {
     _id: { toString(): string };
     event: string;
@@ -61,8 +77,35 @@ type RawInboxDoc = {
     category?: string;
     accentColor?: string;
     badgeText?: string;
-    ctaButtons?: InboxCtaButton[];
+    ctaButtons?: RawCtaButton[];
 };
+
+/**
+ * Converts a raw, possibly-Mongoose-tainted ctaButtons array into plain,
+ * JSON-safe objects — dropping `_id` (an ObjectId) and any other non-plain
+ * fields entirely, keeping only the three fields the client actually needs.
+ * This is a targeted fix at the serialization boundary, not a blanket
+ * JSON.stringify/parse round-trip of the whole document — every other
+ * field on RawInboxDoc is already a plain string/boolean/Date, so only
+ * this one nested array needed explicit sanitizing.
+ */
+function sanitizeCtaButtons(raw: unknown): InboxCtaButton[] {
+    if (!Array.isArray(raw)) return [];
+
+    const result: InboxCtaButton[] = [];
+    for (const entry of raw) {
+        if (!entry || typeof entry !== "object") continue;
+        const e = entry as RawCtaButton;
+        if (typeof e.id !== "string" || typeof e.label !== "string") continue;
+
+        result.push({
+            id: e.id,
+            label: e.label,
+            ...(typeof e.url === "string" ? { url: e.url } : {}),
+        });
+    }
+    return result;
+}
 
 function serialize(doc: RawInboxDoc): InboxNotificationItem {
     return {
@@ -79,7 +122,7 @@ function serialize(doc: RawInboxDoc): InboxNotificationItem {
         category: doc.category ?? "general",
         accentColor: doc.accentColor || "#FF5C1A",
         badgeText: doc.badgeText || "",
-        ctaButtons: Array.isArray(doc.ctaButtons) ? doc.ctaButtons : [],
+        ctaButtons: sanitizeCtaButtons(doc.ctaButtons),
     };
 }
 

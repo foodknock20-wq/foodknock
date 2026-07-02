@@ -7,6 +7,23 @@
 //   - useMemo for derived values
 //   - Stable style objects extracted from render path
 //   - React.memo on UpsellCard
+//
+// MOBILE CTA REDESIGN (this change only):
+//   - The previously-added FIXED/STICKY mobile Add-to-Cart bar has been
+//     removed entirely, per explicit request — it was visually correct
+//     after the earlier stacking-collision fix, but the fixed-bar pattern
+//     itself is no longer wanted.
+//   - The existing mobile "qty hint" block (which already sat inline,
+//     in normal page flow, right after the product info section and
+//     before "Pairs Perfectly With") is now the ONLY mobile action
+//     surface: quantity selector kept exactly where it was, with the
+//     Add to Cart button placed immediately to its right, filling the
+//     remaining row width. This reuses handleAddToCart/decQty/incQty/
+//     qty/adding/isUnavailable EXACTLY as already defined — no new
+//     handler, no new state, no duplicate cart logic.
+//   - The `pb-40` bump on the "You Might Also Love" section (added only
+//     to clear the now-removed fixed bar) is reverted back to `pb-32`.
+//   - Desktop's CTA block is completely untouched.
 
 import { useState, useCallback, useMemo, memo } from "react";
 import { useCartStore } from "@/store/cartStore";
@@ -159,6 +176,7 @@ const UpsellCard = memo(function UpsellCard({ product }: { product: Product }) {
                 <button
                     onClick={handleAdd}
                     disabled={adding || isUnavailable}
+                    aria-label={`Add ${product.name} to cart`}
                     className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-black transition-all duration-200 ${adding
                         ? "bg-green-500 text-white shadow-sm"
                         : isUnavailable
@@ -426,22 +444,27 @@ export default function ProductDetail({
                             </div>
                         )}
 
-                        {/* Qty + Add to cart (desktop) */}
+                        {/* Qty + Add to cart (desktop) — UNCHANGED */}
                         <div className="mt-auto hidden items-center gap-3 md:flex">
                             <div className="flex items-center overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
                                 <button
                                     onClick={decQty}
                                     disabled={isUnavailable}
+                                    aria-label="Decrease quantity"
                                     className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
                                 >
                                     <Minus size={14} strokeWidth={2.5} />
                                 </button>
-                                <span className="min-w-[2.5rem] border-x border-amber-200 px-2 text-center text-sm font-black text-stone-800">
+                                <span
+                                    className="min-w-[2.5rem] border-x border-amber-200 px-2 text-center text-sm font-black text-stone-800"
+                                    aria-live="polite"
+                                >
                                     {qty}
                                 </span>
                                 <button
                                     onClick={incQty}
                                     disabled={isUnavailable}
+                                    aria-label="Increase quantity"
                                     className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
                                 >
                                     <Plus size={14} strokeWidth={2.5} />
@@ -451,6 +474,7 @@ export default function ProductDetail({
                             <button
                                 onClick={handleAddToCart}
                                 disabled={isUnavailable || adding}
+                                aria-label={`Add ${qty > 1 ? `${qty} ` : ""}${product.name} to cart`}
                                 className={`flex flex-1 items-center justify-center gap-2.5 rounded-xl py-3.5 text-sm font-black transition-all duration-200 ${isUnavailable
                                     ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400"
                                     : adding
@@ -469,32 +493,62 @@ export default function ProductDetail({
                             </button>
                         </div>
 
-                        {/* Mobile qty hint */}
-                        <div className="mt-5 flex items-center gap-2 md:hidden">
-                            <div className="flex items-center overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
+                        {/* ── Mobile inline action row (REPLACES the old
+                            informational qty-hint AND the removed fixed
+                            bottom bar). Same position as before: right after
+                            product info, before "Pairs Perfectly With",
+                            fully in normal page flow — no position:fixed,
+                            no position:sticky. Quantity selector stays
+                            exactly where it was; Add to Cart is now placed
+                            immediately to its right and fills the remaining
+                            row width. Reuses decQty/incQty/handleAddToCart/
+                            qty/adding/isUnavailable — zero new state, zero
+                            new handlers, zero duplicated cart logic. ── */}
+                        <div className="mt-5 flex items-center gap-2.5 md:hidden">
+                            <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
                                 <button
                                     onClick={decQty}
                                     disabled={isUnavailable}
-                                    className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30"
+                                    aria-label="Decrease quantity"
+                                    className="flex h-12 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
                                 >
                                     <Minus size={13} strokeWidth={2.5} />
                                 </button>
-                                <span className="min-w-[2.5rem] border-x border-amber-200 px-2 text-center text-sm font-black text-stone-800">
+                                <span
+                                    className="min-w-[2.25rem] border-x border-amber-200 px-2 text-center text-sm font-black text-stone-800"
+                                    aria-live="polite"
+                                >
                                     {qty}
                                 </span>
                                 <button
                                     onClick={incQty}
                                     disabled={isUnavailable}
-                                    className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30"
+                                    aria-label="Increase quantity"
+                                    className="flex h-12 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
                                 >
                                     <Plus size={13} strokeWidth={2.5} />
                                 </button>
                             </div>
-                            <p className="text-xs text-stone-400">
-                                Tap{" "}
-                                <span className="font-bold text-orange-500">Add to Cart</span>{" "}
-                                below to order
-                            </p>
+
+                            <button
+                                onClick={handleAddToCart}
+                                disabled={isUnavailable || adding}
+                                aria-label={`Add ${qty > 1 ? `${qty} ` : ""}${product.name} to cart for ₹${product.price * qty}`}
+                                className={`flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl text-[13.5px] font-black transition-all duration-200 ${isUnavailable
+                                    ? "cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400"
+                                    : adding
+                                        ? "scale-[0.98] bg-green-500 text-white shadow-lg shadow-green-200"
+                                        : "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-200 active:scale-[0.98]"
+                                    }`}
+                            >
+                                {adding ? (
+                                    <><span>✓</span> Added!</>
+                                ) : isUnavailable ? (
+                                    "Not Available"
+                                ) : (
+                                    <><ShoppingCart size={15} strokeWidth={2.5} /> Add to Cart · ₹{product.price * qty}</>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -548,51 +602,6 @@ export default function ProductDetail({
                         </div>
                     </section>
                 )}
-            </div>
-
-            {/* STICKY MOBILE CTA BAR */}
-            <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-amber-100 bg-white/97 px-4 py-3 backdrop-blur-md md:hidden shadow-xl shadow-stone-200/80">
-                <div className="flex items-center gap-3">
-                    <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm">
-                        <button
-                            onClick={decQty}
-                            disabled={isUnavailable}
-                            className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
-                        >
-                            <Minus size={13} strokeWidth={2.5} />
-                        </button>
-                        <span className="min-w-[2rem] border-x border-amber-200 px-2 text-center text-sm font-black text-stone-800">
-                            {qty}
-                        </span>
-                        <button
-                            onClick={incQty}
-                            disabled={isUnavailable}
-                            className="flex h-11 w-11 items-center justify-center text-stone-500 transition-colors hover:bg-amber-50 hover:text-orange-500 disabled:opacity-30 active:scale-95"
-                        >
-                            <Plus size={13} strokeWidth={2.5} />
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={handleAddToCart}
-                        disabled={isUnavailable || adding}
-                        className={`flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-sm font-black transition-all duration-200 ${isUnavailable
-                            ? "cursor-not-allowed bg-stone-100 text-stone-400"
-                            : adding
-                                ? "bg-green-500 text-white shadow-lg shadow-green-200"
-                                : "bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg shadow-orange-200 active:scale-[0.98]"
-                            }`}
-                    >
-                        {adding ? (
-                            <><span>✓</span> Added to Cart!</>
-                        ) : isUnavailable ? (
-                            "Currently Unavailable"
-                        ) : (
-                            <><ShoppingCart size={15} strokeWidth={2.5} /> Add to Cart · ₹{product.price * qty}</>
-                        )}
-                    </button>
-                </div>
-                <div className="h-safe-area-inset-bottom" />
             </div>
         </main>
     );

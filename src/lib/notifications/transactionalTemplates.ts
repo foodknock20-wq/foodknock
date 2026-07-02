@@ -86,7 +86,7 @@ function buildOrderDeliveredPayload(event: NotificationEvent<OrderEventData>): N
     return {
         title: "✅ Delivered!",
         body: "Enjoy your meal. Thank you for choosing FoodKnock.",
-        url: `/my-orders/${orderId}`,
+        url: `/`,
         category: "order_update",
         priority: "high",
         actions: [
@@ -94,7 +94,7 @@ function buildOrderDeliveredPayload(event: NotificationEvent<OrderEventData>): N
             { action: "reorder", title: "Order Again" },
         ],
         ctaButtons: [
-            { id: "rate", label: "Review Now", url: `/my-orders/${orderId}` },
+            { id: "rate", label: "Review Now", url: `/reviews` },
             { id: "reorder", label: "Order Again", url: "/menu" },
         ],
         // customerName is push-irrelevant — included only so the Email

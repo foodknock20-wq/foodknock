@@ -11,12 +11,19 @@ export const dynamic = "force-dynamic";
 // Auth is checked here rather than in middleware.ts: this route wasn't
 // previously protected, and adding it to middleware's matcher would touch
 // a working, unrelated file for a need this page can fully satisfy itself.
+//
+// UI REDESIGN: now wraps NotificationInbox with the SAME Navbar/Footer
+// pattern src/app/(main)/my-orders/page.tsx already uses — this is what
+// lets the page "fit naturally between both navbars" per the design brief.
+// No data-fetching logic changed at all.
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { verifyToken } from "@/lib/auth";
 import { fetchInboxPage, fetchUnreadCount } from "@/lib/notifications/inboxQuery";
 import NotificationInbox from "@/components/notifications/NotificationInbox";
+import Navbar from "@/components/shared/Navbar";
+import Footer from "@/components/shared/Footer";
 
 async function getAuthedUserId(): Promise<string | null> {
     const cookieStore = await cookies();
@@ -43,11 +50,15 @@ export default async function NotificationsPage() {
     ]);
 
     return (
-        <NotificationInbox
-            initialItems={firstPage.items}
-            initialNextCursor={firstPage.nextCursor}
-            initialHasMore={firstPage.hasMore}
-            initialUnreadCount={unreadCount}
-        />
+        <>
+            <Navbar />
+            <NotificationInbox
+                initialItems={firstPage.items}
+                initialNextCursor={firstPage.nextCursor}
+                initialHasMore={firstPage.hasMore}
+                initialUnreadCount={unreadCount}
+            />
+            <Footer />
+        </>
     );
 }
