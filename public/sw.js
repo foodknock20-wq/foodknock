@@ -1,4 +1,4 @@
-const CACHE_NAME = "foodknock-v1";
+const CACHE_NAME = "foodknock-v2";
 const OFFLINE_URL = "/";
 
 self.addEventListener("install", (event) => {

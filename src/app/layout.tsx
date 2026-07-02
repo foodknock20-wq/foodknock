@@ -7,6 +7,7 @@ import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import NotificationPrompt from "@/components/shared/NotificationPrompt";
+import OfflineOverlay from "@/components/shared/OfflineOverlay";
 import { verifyToken } from "@/lib/auth";
 import { Analytics } from "@vercel/analytics/next";
 
@@ -194,6 +195,12 @@ export default async function RootLayout({
                 <Suspense fallback={null}>
                     <NotificationPrompt isAuthenticated={authed} />
                 </Suspense>
+
+                {/* Premium offline overlay — client-side only, always mounted,
+                    renders nothing while online. Probes public/ping.txt for
+                    real connectivity (see OfflineOverlay.tsx's own header).
+                    Does not touch sw.js, routing, notifications, or caching. */}
+                <OfflineOverlay />
 
                 <Analytics />
 
