@@ -8,6 +8,7 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import NotificationPrompt from "@/components/shared/NotificationPrompt";
 import OfflineOverlay from "@/components/shared/OfflineOverlay";
+import SplashScreen from "@/components/shared/SplashScreen";
 import { verifyToken } from "@/lib/auth";
 import { Analytics } from "@vercel/analytics/next";
 
@@ -182,6 +183,15 @@ export default async function RootLayout({
                     type="application/ld+json"
                     dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
                 />
+
+                {/* Premium startup splash — visible by default (identical on
+                    server and first client render, so zero hydration
+                    mismatch), fades out once the app is genuinely ready
+                    (document + fonts loaded). See SplashScreen.tsx's own
+                    header for the full readiness/animation strategy. Purely
+                    presentational: no business logic, auth, orders,
+                    notifications, or service worker code is touched by it. */}
+                <SplashScreen />
 
                 {/*
                   pb-[calc(62px+env(safe-area-inset-bottom,0px))] ensures page content
