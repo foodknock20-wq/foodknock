@@ -1,3 +1,4 @@
+// src/components/founders/FounderDetailPanel.tsx
 import { Instagram, Linkedin, X } from "lucide-react";
 import type { Founder } from "@/lib/foundersData";
 
@@ -147,7 +148,7 @@ export default function FounderDetailPanel({ founder, onClose }: Props) {
 
                     {/* Social CTA */}
                     
-                        href={founder.social.href}
+                        <a href={founder.social.href}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-[12px] font-black uppercase tracking-[0.06em] text-white transition-all duration-200 hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 active:scale-[0.98]"
