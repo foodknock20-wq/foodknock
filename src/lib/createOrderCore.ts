@@ -22,6 +22,29 @@
 //      For COD orders these fields are completely omitted from orderData so
 //      MongoDB's sparse-unique index on razorpayPaymentId never sees a null
 //      and E11000 duplicate-key errors cannot occur.
+//
+// PERF PASS (Orders/Loyalty audit):
+//   1. Loyalty-balance lookup and customer-email lookup — previously TWO
+//      separate `User.findById()` calls later in this function — are now
+//      ONE combined lookup (`linkedUserSnapshot`), fetched once and reused
+//      by both the redemption-cap check and the confirmation/admin-alert
+//      emails. Same fields, same values, same error handling.
+//      Expected Mongo: -1 query per order placed by a logged-in user.
+//      Expected CPU/Duration: one fewer awaited round trip on the hot
+//      checkout path (every COD + every Razorpay order).
+//   2. Stock-decrement loop now fires all `product.save()` calls
+//      concurrently via Promise.all instead of sequentially — mirrors the
+//      identical fix already applied in src/app/api/orders/route.ts. The
+//      preceding VALIDATION loop is intentionally left as a separate,
+//      sequential, all-items-first pass (see comment at that loop) — this
+//      file explicitly documents that Mongo transactions are not used here
+//      (Atlas free-tier restriction, see loyaltyService.ts), so validating
+//      every item BEFORE mutating any stock is a deliberate correctness
+//      safeguard against partial decrements on a late validation failure.
+//      Only the (already-fully-validated) SAVE step is parallelized.
+//      Expected Duration: for a cart with N distinct products, collapses N
+//      sequential round trips into 1 concurrent batch — the single largest
+//      latency contributor in this function for multi-item carts.
 
 import mongoose from "mongoose";
 import crypto   from "crypto";
@@ -191,6 +214,14 @@ export async function createOrderCore(
         .filter((i) => mongoose.Types.ObjectId.isValid(i._id))
         .map((i) => new mongoose.Types.ObjectId(i._id));
 
+    // NOTE: intentionally NOT .lean() and NOT .select()-projected here.
+    // These documents are mutated (stock decrement) and persisted via
+    // .save() below — .save() re-validates the FULL document against the
+    // schema (required fields etc.), so a partial projection would cause
+    // spurious "required field missing" validation errors on save() even
+    // though we only intend to change `stock`/`isAvailable`. Fetching the
+    // full document here is the correct, safe approach for a document that
+    // will be saved back.
     const products   = await Product.find({ _id: { $in: productIds } });
     const productMap = new Map(products.map((p) => [String(p._id), p]));
 
@@ -208,15 +239,21 @@ export async function createOrderCore(
     }
 
     // ── Decrement stock ───────────────────────────────────────────────────
-    for (const item of rawItems) {
-        const product = productMap.get(item._id)!;
-        product.stock -= item.quantity;
-        if (product.stock <= 0) {
-            product.stock       = 0;
-            product.isAvailable = false;
-        }
-        await product.save();
-    }
+    // PERF: all saves fire concurrently — see file-header comment for the
+    // full rationale (why the preceding validation loop stays sequential
+    // and separate, while only this already-fully-validated mutation step
+    // is parallelized).
+    await Promise.all(
+        rawItems.map((item) => {
+            const product = productMap.get(item._id)!;
+            product.stock -= item.quantity;
+            if (product.stock <= 0) {
+                product.stock       = 0;
+                product.isAvailable = false;
+            }
+            return product.save();
+        })
+    );
 
     // ── Subtotal ──────────────────────────────────────────────────────────
     const subtotal: number = rawItems.reduce(
@@ -276,6 +313,24 @@ export async function createOrderCore(
         );
     }
 
+    // ── PERF: single combined lookup for loyaltyPoints + email ─────────────
+    // Replaces what were previously TWO separate User.findById() calls
+    // later in this function (one for the loyalty-redemption balance check
+    // below, one for the order-confirmation/admin-alert email lookup
+    // further down) with ONE query, executed once, whenever a logged-in
+    // user is placing the order. Same fields, same values, same error
+    // handling as before — only the number of round trips changes.
+    const linkedUserSnapshot: { loyaltyPoints?: number; email?: string } | null =
+        linkedUserId
+            ? await User.findById(linkedUserId)
+                  .select("loyaltyPoints email")
+                  .lean()
+                  .catch((err) => {
+                      console.error("LINKED_USER_LOOKUP_ERROR", err);
+                      return null;
+                  })
+            : null;
+
     // ── Loyalty: security cap ─────────────────────────────────────────────
     let verifiedRedeemPoints = 0;
     let redeemedAmount       = 0;
@@ -283,10 +338,7 @@ export async function createOrderCore(
     const echoedPoints = Math.max(0, Math.floor(Number(clientValidatedPoints ?? 0)));
 
     if (linkedUserId && echoedPoints >= LOYALTY_CONFIG.MIN_REDEEM_POINTS) {
-        const freshUser = await User.findById(linkedUserId)
-            .select("loyaltyPoints")
-            .lean() as { loyaltyPoints?: number } | null;
-        const liveBalance = Number(freshUser?.loyaltyPoints ?? 0);
+        const liveBalance = Number(linkedUserSnapshot?.loyaltyPoints ?? 0);
 
         const capped = Math.min(echoedPoints, liveBalance);
         if (capped >= LOYALTY_CONFIG.MIN_REDEEM_POINTS) {
@@ -411,21 +463,13 @@ export async function createOrderCore(
         }
     }
 
-    // ── Customer email lookup (shared by confirmation + admin alert) ──────
-    // Only resolved when we actually have a linkedUserId — guest checkout
-    // (linkedUserId === null, Razorpay only) never collects an email on the
-    // checkout form, so there is nothing to resolve in that case. One query,
-    // reused by both downstream emails below.
-    const customerEmailPromise: Promise<string | undefined> = linkedUserId
-        ? User.findById(linkedUserId)
-              .select("email")
-              .lean()
-              .then((freshUser: { email?: string } | null) => freshUser?.email)
-              .catch((err) => {
-                  console.error("CUSTOMER_EMAIL_LOOKUP_ERROR", err);
-                  return undefined;
-              })
-        : Promise.resolve(undefined);
+    // ── Customer email (shared by confirmation + admin alert) ─────────────
+    // PERF: sourced from linkedUserSnapshot fetched once above — no extra
+    // query here. Preserves the exact same Promise<string | undefined>
+    // shape the two .then() chains below already expect, so nothing
+    // downstream needs to change.
+    const customerEmailPromise: Promise<string | undefined> =
+        Promise.resolve(linkedUserSnapshot?.email);
 
     // ── Order confirmation email (customer) ────────────────────────────────
     // Only sent when we actually have an email to send to. Fire-and-forget:

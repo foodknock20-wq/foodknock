@@ -26,6 +26,23 @@
 // createOrderCore.ts already uses for its own order.placed emit): a
 // notification failure must never affect point crediting, which has
 // already succeeded by the time each emit() call runs.
+//
+// ── PERF PASS (Orders/Loyalty audit) ─────────────────────────────────────
+//   1. redeemPoints(): the balance read (User.findById) and the idempotency
+//      check (LoyaltyLedger.exists) are two fully independent reads against
+//      two different collections — neither depends on the other's result.
+//      They now run concurrently via Promise.all instead of sequentially.
+//      The branching logic afterwards evaluates them in the EXACT same
+//      order as before (balance check first, then idempotency), so error
+//      precedence and behavior are byte-for-byte identical — only the
+//      wall-clock time to fetch both is reduced.
+//   2. handleOrderDelivered(): the referee credit and referrer credit are
+//      two writes to two entirely different user documents with two
+//      independent ledger entries — there is no ordering dependency
+//      between them. They now run concurrently via Promise.all instead of
+//      sequentially, halving the wall-clock time of the referral tail
+//      section. Each branch keeps its own error-isolated notification
+//      exactly as before.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import User          from "@/models/User";
@@ -164,7 +181,17 @@ export async function redeemPoints(opts: RedeemOptions): Promise<number> {
         throw new Error(`Minimum ${LOYALTY_CONFIG.MIN_REDEEM_POINTS} points required to redeem`);
     }
 
-    const user = await User.findById(opts.userId).select("loyaltyPoints").lean();
+    // PERF: independent reads, fetched concurrently — see file-header
+    // comment. Branching order below is unchanged from before.
+    const [user, alreadyRedeemed] = await Promise.all([
+        User.findById(opts.userId).select("loyaltyPoints").lean(),
+        LoyaltyLedger.exists({
+            user:  opts.userId,
+            order: opts.orderMongoId,
+            type:  "redemption",
+        }),
+    ]);
+
     if (!user) throw new Error("redeemPoints: user not found");
 
     const balance = (user as any).loyaltyPoints as number ?? 0;
@@ -173,11 +200,6 @@ export async function redeemPoints(opts: RedeemOptions): Promise<number> {
     }
 
     // Idempotency: don't double-deduct for same order
-    const alreadyRedeemed = await LoyaltyLedger.exists({
-        user:  opts.userId,
-        order: opts.orderMongoId,
-        type:  "redemption",
-    });
     if (alreadyRedeemed) {
         console.log(`[loyalty] redemption for order ${opts.orderMongoId} already exists — skip`);
         return pointsToRupees(opts.points);
@@ -286,44 +308,53 @@ export async function handleOrderDelivered(orderId: string): Promise<void> {
 
     const referrerId = referredBy.toString();
 
-    await _applyPoints({
-        userId,
-        delta:           LOYALTY_CONFIG.REFEREE_REWARD,
-        type:            "referral_referee",
-        orderMongoId:    orderId,
-        referredUserId:  userId,
-        note:            "Welcome bonus — joined via referral",
-    });
+    // PERF: referee credit and referrer credit touch two entirely different
+    // user documents and write two independent ledger entries — there is no
+    // ordering dependency between them. Running them concurrently instead
+    // of sequentially halves the wall-clock time of this tail section
+    // without changing which writes happen or what they contain. Each
+    // branch keeps its own error-isolated notification, identical to the
+    // pre-existing sequential version.
+    await Promise.all([
+        (async () => {
+            await _applyPoints({
+                userId,
+                delta:           LOYALTY_CONFIG.REFEREE_REWARD,
+                type:            "referral_referee",
+                orderMongoId:    orderId,
+                referredUserId:  userId,
+                note:            "Welcome bonus — joined via referral",
+            });
 
-    // NEW: notify the referee.
-    try {
-        notificationEngine.emit({
-            name: "referral.reward_granted",
-            data: { points: LOYALTY_CONFIG.REFEREE_REWARD, role: "referee" },
-            target: { userId },
-        });
-    } catch (notifyErr) {
-        console.error("REFERRAL_REWARD_REFEREE_NOTIFY_ERROR", notifyErr);
-    }
+            try {
+                notificationEngine.emit({
+                    name: "referral.reward_granted",
+                    data: { points: LOYALTY_CONFIG.REFEREE_REWARD, role: "referee" },
+                    target: { userId },
+                });
+            } catch (notifyErr) {
+                console.error("REFERRAL_REWARD_REFEREE_NOTIFY_ERROR", notifyErr);
+            }
+        })(),
+        (async () => {
+            await _applyPoints({
+                userId:          referrerId,
+                delta:           LOYALTY_CONFIG.REFERRER_REWARD,
+                type:            "referral_referrer",
+                orderMongoId:    orderId,
+                referredUserId:  userId,
+                note:            "Referral reward — your friend's first order was delivered",
+            });
 
-    await _applyPoints({
-        userId:          referrerId,
-        delta:           LOYALTY_CONFIG.REFERRER_REWARD,
-        type:            "referral_referrer",
-        orderMongoId:    orderId,
-        referredUserId:  userId,
-        note:            "Referral reward — your friend's first order was delivered",
-    });
-
-    // NEW: notify the referrer — a distinct user, distinct target.userId,
-    // distinct copy (role: "referrer").
-    try {
-        notificationEngine.emit({
-            name: "referral.reward_granted",
-            data: { points: LOYALTY_CONFIG.REFERRER_REWARD, role: "referrer" },
-            target: { userId: referrerId },
-        });
-    } catch (notifyErr) {
-        console.error("REFERRAL_REWARD_REFERRER_NOTIFY_ERROR", notifyErr);
-    }
+            try {
+                notificationEngine.emit({
+                    name: "referral.reward_granted",
+                    data: { points: LOYALTY_CONFIG.REFERRER_REWARD, role: "referrer" },
+                    target: { userId: referrerId },
+                });
+            } catch (notifyErr) {
+                console.error("REFERRAL_REWARD_REFERRER_NOTIFY_ERROR", notifyErr);
+            }
+        })(),
+    ]);
 }

@@ -4,8 +4,26 @@ export const dynamic = "force-dynamic";
 
 // src/app/(main)/loyalty/page.tsx
 // FoodKnock Rewards — Premium redesign. Full page, both guest + auth states.
+//
+// PERF PASS (Orders/Loyalty audit):
+//   The ledger array was previously re-sorted with `[...data.ledger].sort()`
+//   INLINE during render, after the loading/auth-error/network-error early
+//   returns. That meant: (1) it re-ran on every render regardless of
+//   whether `data` had actually changed — e.g. clicking "Copy referral
+//   code" flips the unrelated `copied` state, which re-renders this whole
+//   component and was re-sorting the full (up to 50-item) ledger array
+//   again for no reason; and (2) a brand-new array reference was created
+//   every render, which would also cause any child relying on referential
+//   stability to treat it as "new data" even when it wasn't.
+//   Fixed by computing `ledger` via `useMemo(() => ..., [data])`, moved
+//   BEFORE the early returns (required — hooks must run unconditionally on
+//   every render, so a memo can't live after conditional `return`s). Same
+//   sorted output, same values, just skipped when `data` hasn't changed.
+//   Expected CPU: removes a redundant O(n log n) sort + array copy on every
+//   render that isn't triggered by a fresh /api/loyalty fetch (copy button,
+//   any other local UI state toggle in this component).
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
@@ -516,6 +534,18 @@ export default function LoyaltyPage() {
 
     useEffect(() => { load(); }, [load]);
 
+    // PERF PASS: moved before the early returns below (Rules of Hooks —
+    // hooks must run unconditionally on every render) and wrapped in
+    // useMemo keyed on `data`. Previously this sort ran inline during
+    // render on every re-render of this component (including unrelated
+    // local state changes like `copied`), producing a brand-new sorted
+    // array every time even when the underlying data hadn't changed.
+    const ledger = useMemo(() => {
+        return Array.isArray(data?.ledger)
+            ? [...data!.ledger].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            : [];
+    }, [data]);
+
     const copyCode = () => {
         if (!referralCode) return;
         navigator.clipboard.writeText(referralCode).catch(() => {});
@@ -592,9 +622,6 @@ Order now 👉 https://foodknock.com`
     const pointValueInr       = Number(data!.pointValueInr) || CFG.PT_VALUE;
     const minRedeem           = Number(data!.minRedeem) || CFG.MIN_REDEEM;
     const referralCode        = (data!.referralCode && data!.referralCode.length >= 4) ? data!.referralCode : null;
-    const ledger              = Array.isArray(data!.ledger)
-        ? [...data!.ledger].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        : [];
     const balanceInRupees     = (balance * pointValueInr).toFixed(0);
     const canRedeem           = balance >= minRedeem;
     const ptsToRedeem         = Math.max(0, minRedeem - balance);

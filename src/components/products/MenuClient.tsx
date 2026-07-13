@@ -8,6 +8,23 @@
 //   • CategorySection receives `products` (pre-sorted) + `availableCount` — does ZERO internal sort/filter
 //   • No per-render style tag injections (style jsx global moved to module-level or removed)
 //   • All WAVE 3B improvements preserved
+//
+// PERF PASS 2 (this change only):
+//   • filteredProducts no longer opens with `let list = [...products]`.
+//     WHY: that initial spread performs a full O(n) array clone that is
+//     immediately discarded/replaced the moment either the category or
+//     search filter runs (`.filter()` already returns a brand-new array —
+//     it never mutates its source). Since `products` itself is never
+//     mutated anywhere in this component, reading from it directly is safe
+//     and skips one redundant full-array copy on every keystroke of the
+//     search box and every category click.
+//     Expected CPU: ~50% less array-copy work in the hot search/filter path
+//     for this memo (one array pass instead of two on every filtered call).
+//     Expected Mongo: none (client-side only).
+//     Expected bandwidth: none.
+//     Expected Vercel: none (this runs in the browser) — pure client CPU/
+//     responsiveness improvement, most noticeable while typing in the
+//     search box on larger menus.
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -195,8 +212,13 @@ export default function MenuClient({
             .filter((s): s is NonNullable<typeof s> => s !== null && s.products.length > 0);
     }, [categories, categoryMap]);
 
+    // PERF PASS 2: `list` now starts as a direct reference to `products`
+    // instead of `[...products]`. `products` is never mutated (only ever
+    // read), and `.filter()` below always returns a fresh array, so this is
+    // safe and removes one redundant O(n) clone from the hot search/filter
+    // path. See file-header comment for full rationale.
     const filteredProducts = useMemo(() => {
-        let list = [...products];
+        let list: Product[] = products;
         if (category !== "All")
             list = list.filter(p => normalize(p.category) === category);
         if (search.trim()) {

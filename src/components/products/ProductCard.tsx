@@ -23,6 +23,25 @@
 //   - PriceBlock and MobilePrice sub-components: stable inline styles moved to
 //     module-level constants to prevent object recreation on every render
 //   - IMAGE_WRAPPER_STYLE defined once at module level, shared by both card variants
+//
+// PERF PASS 2 (this change only):
+//   - Both card <Link> elements now set `prefetch={false}`.
+//     WHY: `/menu/[slug]` is `dynamic = "force-dynamic"` (fully SSR, no ISR,
+//     no cache). Next.js's default Link behaviour prefetches the target
+//     route as soon as the link scrolls into the viewport. On a menu grid
+//     with dozens of ProductCards, that means every card the user scrolls
+//     past silently triggers a REAL dynamic SSR render (a full Mongo query
+//     + serverless invocation) for a page the user may never open — the
+//     exact class of hidden cost this project already removed ISR to avoid.
+//     Disabling prefetch does not change any user-facing behaviour: clicking
+//     a card still navigates normally, it simply no longer fetches ahead of
+//     time.
+//     Expected Mongo: removes N-1 speculative product-detail queries per
+//     menu-page session (N = cards scrolled past but not clicked).
+//     Expected CPU / Vercel: removes the matching speculative serverless
+//     invocations entirely — this is typically the single largest hidden
+//     cost source on a force-dynamic product-grid page.
+//     Expected bandwidth: removes the prefetch RSC payload downloads.
 
 import { toast } from "react-hot-toast";
 import { useCartStore } from "@/store/cartStore";
@@ -381,6 +400,10 @@ const ProductCard = memo(function ProductCard({
         return (
             <Link
                 href={`/menu/${product.slug}`}
+                // PERF PASS 2: prevent speculative SSR invocations of the
+                // force-dynamic product-detail route on scroll — see file
+                // header comment for full rationale.
+                prefetch={false}
                 className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white transition-all duration-300 sm:rounded-3xl ${unavailable
                     ? "opacity-65"
                     : "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-orange-100/60"
@@ -518,6 +541,10 @@ const ProductCard = memo(function ProductCard({
     return (
         <Link
             href={`/menu/${product.slug}`}
+            // PERF PASS 2: prevent speculative SSR invocations of the
+            // force-dynamic product-detail route on scroll — see file
+            // header comment for full rationale.
+            prefetch={false}
             className={`group relative flex flex-col overflow-hidden rounded-2xl bg-white transition-all duration-300 sm:rounded-3xl ${unavailable
                 ? "opacity-65"
                 : "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-orange-100/60"

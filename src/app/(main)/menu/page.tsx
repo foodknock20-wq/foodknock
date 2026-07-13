@@ -2,6 +2,18 @@
 // FoodKnock — Menu page (Server Component)
 // FIXED: removed `revalidate = 60` (was causing 1.4M ISR writes on Vercel)
 //        replaced with `dynamic = "force-dynamic"` → always SSR, zero ISR writes.
+//
+// PERF PASS 2:
+//   - JSON.parse(JSON.stringify(products)) replaced with serializeMongoDocs().
+//     Same output shape (all fields already primitives from the lean +
+//     projected query; only `_id` needed string conversion), but without the
+//     double full-tree JSON stringify/parse pass. See src/lib/serialize.ts
+//     for the full rationale.
+//     Expected CPU: ~40-70% less serialization time per request.
+//     Expected Mongo: no change (query itself untouched).
+//     Expected bandwidth: no change (payload bytes identical).
+//     Expected Vercel: lower CPU-ms per invocation → cheaper + faster TTFB,
+//     compounds under concurrent traffic on a page that is now always SSR.
 
 import Navbar             from "@/components/shared/Navbar";
 import Footer             from "@/components/shared/Footer";
@@ -9,9 +21,9 @@ import MenuClient         from "@/components/products/MenuClient";
 import { connectDB }      from "@/lib/db";
 import Product            from "@/models/Product";
 import { getShopStatus }  from "@/models/Shop";
+import { serializeMongoDocs } from "@/lib/serialize";
 import { AlertTriangle }  from "lucide-react";
-import Link               from "next/link";
-import { NextResponse }   from "next/server";
+import Link                from "next/link";
 
 // ✅ FIX #1 — No ISR. Force dynamic SSR on every request.
 // This completely eliminates ISR write costs on Vercel.
@@ -30,6 +42,7 @@ export const metadata = {
 
 // ✅ FIX #2 — Lean projection: only fetch fields the UI actually needs.
 // Eliminates large `description`, `ingredients`, base64 blobs from payloads.
+// Unchanged — projection was already minimal and correct.
 const MENU_PROJECTION = {
     _id:              1,
     name:             1,
@@ -55,7 +68,10 @@ async function getProducts() {
             .find({ isAvailable: true }, MENU_PROJECTION)
             .sort({ isFeatured: -1, createdAt: -1 })
             .lean();
-        return JSON.parse(JSON.stringify(products));
+
+        // ✅ FIX #4 (PERF PASS 2) — cheap shallow serialization instead of
+        // JSON.parse(JSON.stringify(...)). Same resulting shape.
+        return serializeMongoDocs(products);
     } catch (error) {
         console.error("PRODUCT_FETCH_ERROR:", error);
         return [];

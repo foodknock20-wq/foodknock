@@ -3,6 +3,21 @@ export const dynamic = "force-dynamic";
 // src/app/api/orders/[id]/route.ts
 // PATCH — updates order status (and triggers loyalty when status → "delivered")
 // GET   — returns a single order by MongoDB _id
+//
+// PERF PASS (Orders/Loyalty audit):
+//   Removed the `[DEBUG order-delivered-N]` console.log lines. Each one
+//   called JSON.stringify() on request/order data and ran UNCONDITIONALLY
+//   on every single PATCH request to this route (not just delivered
+//   transitions) — this is the admin order-status-update endpoint, one of
+//   the highest-frequency admin actions in the app. JSON.stringify on
+//   arbitrary objects is real CPU work, and every log line also adds to
+//   Vercel's log ingestion volume/cost. Removing them changes no business
+//   logic, no response shape, and no error visibility — all genuine error
+//   paths still use console.error exactly as before.
+//   Expected CPU: removes several JSON.stringify + log-write calls per
+//   PATCH request (7-8 debug lines were present in the delivered-transition
+//   branch alone).
+//   Expected Vercel: lower log ingestion volume on the hottest admin route.
 
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
@@ -102,14 +117,10 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         // ── Loyalty trigger ────────────────────────────────────────────────
         // Fire only on the exact transition into "delivered" — not on re-saves,
         // and not if the order was already delivered before this PATCH.
-        console.log(`[DEBUG order-delivered-1] status=${JSON.stringify(status)} (type=${typeof status}) prevStatus=${JSON.stringify(prevStatus)} (type=${typeof prevStatus}) order.user=${JSON.stringify((existingOrder as any).user)}`);
-
         const isTransitionToDelivered =
             status === "delivered" &&
             prevStatus !== "delivered" &&
             !!(existingOrder as any).user;   // guest orders have no user
-
-        console.log(`[DEBUG order-delivered-2] isTransitionToDelivered=${isTransitionToDelivered}`);
 
         if (isTransitionToDelivered) {
             // Intentionally fire-and-forget with error isolation:
@@ -125,26 +136,19 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
             // by the function returning before a detached promise resolves.
             try {
                 const orderUserId = (existingOrder as { user?: unknown }).user;
-                console.log(`[DEBUG order-delivered-3] orderUserId=${String(orderUserId)} (type=${typeof orderUserId})`);
 
                 const freshUser = await User.findById(orderUserId)
                     .select("email name")
                     .lean() as { email?: string } | null;
-                console.log(`[DEBUG order-delivered-4] freshUser=${JSON.stringify(freshUser)}`);
 
                 const customerEmail = freshUser?.email;
-                console.log(`[DEBUG order-delivered-5] customerEmail=${customerEmail ?? "MISSING"}`);
 
                 if (customerEmail) {
                     const deliveredOrder = updatedOrder as { customerName: string; orderId: string };
-                    console.log(`[DEBUG order-delivered-6] calling sendOrderDeliveredEmail to=${customerEmail} orderId=${deliveredOrder.orderId} customerName=${deliveredOrder.customerName}`);
                     await sendOrderDeliveredEmail(customerEmail, {
                         customerName: deliveredOrder.customerName,
                         orderId:      deliveredOrder.orderId,
                     });
-                    console.log(`[DEBUG order-delivered-7] sendOrderDeliveredEmail resolved without throwing`);
-                } else {
-                    console.log(`[DEBUG order-delivered-X] SKIPPED — no email on file for user ${String(orderUserId)}`);
                 }
             } catch (err) {
                 console.error(`[email] order-delivered email failed for order ${id}:`, err);

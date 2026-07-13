@@ -1,4 +1,3 @@
-
 // src/app/api/orders/cod/route.ts
 //
 // Cash on Delivery order creation.
@@ -12,10 +11,23 @@
 //   5. Return orderId for redirect to /order-success
 //
 // NO Razorpay calls. NO webhook. NO duplicate logic.
+//
+// PERF PASS (Orders/Loyalty audit):
+//   The auth check (`select("_id isActive")`) and the pre-checkout loyalty
+//   balance fetch (`select("loyaltyPoints")`) were two separate
+//   User.findById() calls for the SAME user within this one request. They
+//   are now ONE combined query at auth time (`select("_id isActive
+//   loyaltyPoints")`), with the loyalty balance cached for reuse later in
+//   the redemption-clamping step. This does NOT touch createOrderCore's own
+//   independent server-side loyalty re-validation — that second check is a
+//   deliberate defense-in-depth security cap (see createOrderCore.ts) and
+//   is left completely untouched, preserving 100% of the existing
+//   validation behavior.
+//   Expected Mongo: -1 query per COD order that includes a point redemption.
 
 import { NextResponse } from "next/server";
 import { connectDB }    from "@/lib/db";
-import User             from "@/models/User";
+import User              from "@/models/User";
 import { verifyToken }  from "@/lib/auth";
 import { getShopStatus } from "@/models/Shop";
 import {
@@ -50,20 +62,29 @@ export async function POST(req: Request) {
         const token        = tokenMatch ? decodeURIComponent(tokenMatch[1]) : null;
         let linkedUserId: string | null = null;
 
+        // PERF: cached from the single combined auth+loyalty query below —
+        // reused later instead of a second User.findById() for redemption
+        // clamping. undefined until (and unless) a valid session user is
+        // resolved.
+        let cachedLoyaltyPoints: number | undefined;
+
         if (token) {
             try {
                 const decoded = verifyToken(token) as { userId?: string };
                 if (decoded?.userId) {
                     const user = await User.findById(decoded.userId)
-                        .select("_id isActive")
-                        .lean() as { _id: unknown; isActive?: boolean } | null;
+                        .select("_id isActive loyaltyPoints")
+                        .lean() as { _id: unknown; isActive?: boolean; loyaltyPoints?: number } | null;
                     if (user?.isActive === false) {
                         return NextResponse.json(
                             { success: false, message: "Your account has been blocked." },
                             { status: 403 }
                         );
                     }
-                    if (user) linkedUserId = String(user._id);
+                    if (user) {
+                        linkedUserId = String(user._id);
+                        cachedLoyaltyPoints = user.loyaltyPoints;
+                    }
                 }
             } catch {}
         }
@@ -124,10 +145,9 @@ export async function POST(req: Request) {
         const req_points = Math.max(0, Math.floor(Number(requestedRedeemPoints)));
 
         if (linkedUserId && req_points >= LOYALTY_CONFIG.MIN_REDEEM_POINTS) {
-            const freshUser = await User.findById(linkedUserId)
-                .select("loyaltyPoints")
-                .lean() as { loyaltyPoints?: number } | null;
-            const liveBalance = Number(freshUser?.loyaltyPoints ?? 0);
+            // PERF: reused from the single combined auth+loyalty query above
+            // instead of a second User.findById() here.
+            const liveBalance = Number(cachedLoyaltyPoints ?? 0);
 
             const maxAllowed = maxRedeemablePoints(grossTotal, liveBalance);
             const clamped    = Math.min(req_points, maxAllowed, liveBalance);

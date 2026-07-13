@@ -4,11 +4,18 @@
 // FoodKnock — Premium mobile-first navbar with rotating ticker, smart header, floating bottom nav
 // PATCH: Logo Next/Image replaced with native img + cdnImage — zero Vercel image optimizer usage
 //
-// NEW: also listens for the `fk:notifications-changed` CustomEvent
-// (dispatched by NotificationInbox.tsx after any delete/clear-all/mark-read
-// mutation) and re-fetches the unread count immediately when it fires. The
-// EXISTING fetchUnreadNotifications()/GET /api/notifications data path is
-// completely unchanged — this only adds a second trigger for calling it.
+// PERF PATCH: fetchMe() / fetchLoyalty() / fetchUnreadNotifications() (three
+// separate serverless calls: GET /api/auth/me, GET /api/loyalty, GET
+// /api/notifications) have been collapsed into a single fetchNavbarData()
+// call against the new combined GET /api/navbar endpoint, which queries
+// User + LoyaltyLedger + NotificationLog directly over one Mongo
+// connection. Same auth, same JWT verification, same cookies, same
+// response data, same badges — one network round trip instead of three.
+//
+// The `fk:notifications-changed` CustomEvent (dispatched by
+// NotificationInbox.tsx after any delete/clear-all/mark-read mutation) is
+// unchanged — it now simply re-triggers fetchNavbarData() instead of a
+// notifications-only fetch.
 
 import Link from "next/link";
 import {
@@ -520,14 +527,34 @@ export default function Navbar() {
     const rafRef = useRef<number | null>(null);
     const lastScrollY = useRef(0);
 
-    const fetchMe = useCallback(async () => {
+    // Guards against overlapping requests — e.g. the mount effect firing
+    // and the fk:notifications-changed event firing in quick succession.
+    const fetchInFlight = useRef(false);
+
+    // ── PERF: single combined fetch replacing fetchMe + fetchLoyalty +
+    // fetchUnreadNotifications. One network round trip against
+    // GET /api/navbar, which itself does one Mongo connection and queries
+    // User + LoyaltyLedger + NotificationLog directly (no internal fetches
+    // to the other route handlers). Same auth cookie, same JWT
+    // verification, same response data as before — just merged.
+    const fetchNavbarData = useCallback(async () => {
+        if (fetchInFlight.current) return;
+        fetchInFlight.current = true;
         try {
-            const res = await fetch("/api/auth/me", { credentials: "include" });
+            const res = await fetch("/api/navbar", { credentials: "include", cache: "no-store" });
             if (res.ok) {
                 const data = await res.json();
                 if (data.success && data.user) {
                     setUser(data.user);
                     setAuthState("authenticated");
+                    setLoyaltyBalance(
+                        typeof data.loyaltyBalance === "number"
+                            ? Math.max(0, Math.floor(data.loyaltyBalance))
+                            : null
+                    );
+                    setUnreadNotifications(
+                        typeof data.unreadNotifications === "number" ? data.unreadNotifications : 0
+                    );
                     try {
                         localStorage.setItem("cafeapp_user", JSON.stringify({
                             name: data.user.name,
@@ -539,44 +566,25 @@ export default function Navbar() {
                     return;
                 }
             }
-        } catch { }
-        setUser(null);
-        setAuthState("unauthenticated");
-        try { localStorage.removeItem("cafeapp_user"); } catch { }
-    }, []);
-
-    const fetchLoyalty = useCallback(async () => {
-        try {
-            const res = await fetch("/api/loyalty", { credentials: "include" });
-            if (res.ok) {
-                const json = await res.json();
-                if (json.success && typeof json.balance === "number") {
-                    setLoyaltyBalance(Math.max(0, Math.floor(json.balance)));
-                }
-            }
-        } catch { }
-    }, []);
-
-    // Reuses the existing GET /api/notifications endpoint — its response
-    // already includes `unreadCount` (see inboxQuery.ts's fetchUnreadCount,
-    // already wired into that route for the /notifications page itself).
-    // No new endpoint, no duplicated counting logic — same data source,
-    // just also read here for the navbar's badge.
-    const fetchUnreadNotifications = useCallback(async () => {
-        try {
-            const res = await fetch("/api/notifications", { credentials: "include" });
-            if (res.ok) {
-                const json = await res.json();
-                if (json.success && typeof json.unreadCount === "number") {
-                    setUnreadNotifications(json.unreadCount);
-                }
-            }
-        } catch { }
+            setUser(null);
+            setAuthState("unauthenticated");
+            setLoyaltyBalance(null);
+            setUnreadNotifications(0);
+            try { localStorage.removeItem("cafeapp_user"); } catch { }
+        } catch {
+            setUser(null);
+            setAuthState("unauthenticated");
+            setLoyaltyBalance(null);
+            setUnreadNotifications(0);
+            try { localStorage.removeItem("cafeapp_user"); } catch { }
+        } finally {
+            fetchInFlight.current = false;
+        }
     }, []);
 
     useEffect(() => {
         setMounted(true);
-        fetchMe();
+        fetchNavbarData();
 
         const handleScroll = () => {
             if (rafRef.current) return;
@@ -603,25 +611,18 @@ export default function Navbar() {
             window.removeEventListener("beforeinstallprompt", pwaHandler);
             if (rafRef.current) cancelAnimationFrame(rafRef.current);
         };
-    }, [fetchMe]);
+    }, [fetchNavbarData]);
 
-    useEffect(() => {
-        if (authState === "authenticated") {
-            fetchLoyalty();
-            fetchUnreadNotifications();
-        }
-    }, [authState, fetchLoyalty, fetchUnreadNotifications]);
-
-    // NEW: re-fetch the unread count whenever the Notifications page
+    // Re-fetch the combined navbar payload whenever the Notifications page
     // reports a mutation (delete/clear-all/mark-read), so the badge here
     // stays in sync without a full reload. Only wired while authenticated
-    // — mirrors the same gate the existing fetch effect above already uses.
+    // — mirrors the same gate the previous implementation used.
     useEffect(() => {
         if (authState !== "authenticated") return;
-        const handler = () => fetchUnreadNotifications();
+        const handler = () => fetchNavbarData();
         window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, handler);
         return () => window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, handler);
-    }, [authState, fetchUnreadNotifications]);
+    }, [authState, fetchNavbarData]);
 
     const navLinks = [
         ...baseNavLinks.slice(0, 2),
@@ -631,7 +632,7 @@ export default function Navbar() {
         ...baseNavLinks.slice(2),
     ];
 
-    const handleLogout = async () => {
+    const handleLogout = useCallback(async () => {
         setLoggingOut(true);
         setSheetOpen(false);
         try { await fetch("/api/auth/logout", { method: "POST", credentials: "include" }); } catch { }
@@ -639,19 +640,20 @@ export default function Navbar() {
         setUser(null);
         setAuthState("unauthenticated");
         setLoyaltyBalance(null);
+        setUnreadNotifications(0);
         setLoggingOut(false);
         router.push("/");
         router.refresh();
-    };
+    }, [router]);
 
-    const handleInstallPWA = async () => {
+    const handleInstallPWA = useCallback(async () => {
         if (!pwaPrompt) return;
         try {
             await pwaPrompt.prompt();
             await pwaPrompt.userChoice;
         } catch { }
         setPwaPrompt(null);
-    };
+    }, [pwaPrompt]);
 
     const renderDesktopAuth = () => {
         if (authState === "loading") return (
