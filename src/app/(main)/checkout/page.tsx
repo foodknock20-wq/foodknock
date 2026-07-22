@@ -176,8 +176,12 @@ function ShopClosedBanner() {
                 <AlertTriangle size={20} className="text-red-600" strokeWidth={2} />
             </div>
             <div>
-                <p className="text-[14px] font-black text-red-800">Shop is currently closed</p>
-                <p className="mt-1 text-[12px] leading-relaxed text-red-600">We're not accepting orders right now. Please check back soon!</p>
+                  <p className="text-[14px] font-black text-red-800">
+                    Kitchen is Currently Closed
+                  </p>
+                  <p className="mt-1 text-[12px] leading-relaxed text-red-600">
+                    We're not accepting orders at the moment. Please visit us again during our operating hours.
+                </p>
             </div>
         </div>
     );
