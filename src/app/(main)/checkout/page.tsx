@@ -621,7 +621,7 @@ export default function CheckoutPage() {
             .then((d) => {
                 const open = d?.isOpen ?? true;
                 setShopOpen(open);
-                if (!open) toast.error("Shop is currently closed", { duration: 5000, style: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: "12px" } });
+                if (!open) toast.error("Kitchen is currently closed", { duration: 5000, style: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: "12px" } });
             })
             .catch(() => setShopOpen(true));
     }, []);
