@@ -27,6 +27,7 @@ type Product = {
 const CAT_META: Record<string, { emoji: string; accent: string; bg: string }> = {
     combos: { emoji: "🎁", accent: "#e11d48", bg: "from-rose-50 to-white" },
     pizza: { emoji: "🍕", accent: "#f97316", bg: "from-orange-50 to-white" },
+    "special pizza": { emoji: "🍕", accent: "#f97316", bg: "from-orange-50 to-white" },
     burger: { emoji: "🍔", accent: "#d97706", bg: "from-amber-50 to-white" },
     sandwich: { emoji: "🥪", accent: "#16a34a", bg: "from-green-50 to-white" },
     coffee: { emoji: "☕", accent: "#9333ea", bg: "from-purple-50 to-white" },
