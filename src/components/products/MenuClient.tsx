@@ -25,6 +25,12 @@
 //     Expected Vercel: none (this runs in the browser) — pure client CPU/
 //     responsiveness improvement, most noticeable while typing in the
 //     search box on larger menus.
+//
+// WAVE 3D (this change only):
+//   • CATEGORY_ORDER: added "Special Pizza" immediately after "Pizza" so the
+//     category slider and section list both place it in the required spot.
+//     sortCats() already places any category found in CATEGORY_ORDER at its
+//     index in that array — no other logic needed to change.
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -46,7 +52,7 @@ type Product = {
 
 // ─── Category display order ─────────────────────────────────────────────────
 const CATEGORY_ORDER = [
-    "Combos", "Pizza", "Burger", "Sandwich", "Momos", "Pasta",
+    "Combos", "Pizza", "Special Pizza", "Burger", "Sandwich", "Momos", "Pasta",
     "Noodles", "Maggi", "Chinese", "Pavbhaji", "Patties", "Fries",
     "Snacks", "Shake", "Juice", "Coffee", "Tea", "Ice Cream", "Thali",
 ];
