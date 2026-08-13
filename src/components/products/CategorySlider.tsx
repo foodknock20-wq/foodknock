@@ -27,6 +27,11 @@ const CAT_CONFIG: Record<string, { image: string; accent: string; label: string 
         accent: "#f97316",
         label: "Pizza",
     },
+    "special pizza": {
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1786609824/ChatGPT_Image_Aug_13_2026_02_00_09_PM_vkspve.png",
+        accent: "#f97316",
+        label: "Special Pizza",
+    },
     burger: {
         image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773925722/foodknock/products/ochghfubzkruolrb4ggu.jpg",
         accent: "#d97706",
