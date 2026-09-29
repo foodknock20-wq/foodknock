@@ -1,1 +1,1 @@
-export const COD_MAX_ORDER_AMOUNT = 549;
+export const COD_MAX_ORDER_AMOUNT = 599;
