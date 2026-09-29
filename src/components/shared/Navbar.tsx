@@ -56,9 +56,9 @@ const baseNavLinks = [
 ];
 
 const TICKER_MESSAGES = [
-    { icon: "🚚", text: "Free Delivery on orders above ₹339" },
+    { icon: "🚚", text: "Free Delivery on orders above ₹389" },
     { icon: "🍦", text: "Summer Ice Creams Available" },
-    { icon: "🥘", text: "Fresh Thalis from ₹149" },
+    { icon: "🥘", text: "Fresh Thalis from ₹199" },
     { icon: "⭐", text: "4.9 Rated by Customers" },
 ];
 
