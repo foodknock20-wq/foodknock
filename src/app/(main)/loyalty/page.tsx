@@ -25,14 +25,27 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
+import SpinWheelSection from "@/components/loyalty/SpinWheelSection";
+import RewardWalletSection from "@/components/loyalty/RewardWalletSection";
+import { LOYALTY_CHANGED_EVENT } from "@/lib/clientEvents";
 import {
-    Star, Gift, Users, TrendingUp, Copy, CheckCheck,
+    Star, Copy, CheckCheck, TrendingUp,
     ShoppingBag, ChevronRight, ArrowLeft, Zap, Info,
     Loader2, Share2, Lock, ShoppingCart, Sparkles,
-    Trophy, BadgePercent, Coins, ArrowRight, ChevronDown,
+    ChevronDown, Wallet,
 } from "lucide-react";
+
+// ── Loyalty UI 2.0 — only two primary destinations (URL-synced:
+// /loyalty?tab=rewards|spin). History lives INSIDE Rewards, not as its
+// own top-level tab — see §2 of the Loyalty UI 2.0 redesign spec.
+const TABS = ["rewards", "spin"] as const;
+type LoyaltyTab = typeof TABS[number];
+function isLoyaltyTab(v: string | null): v is LoyaltyTab {
+    return !!v && (TABS as readonly string[]).includes(v);
+}
 
 // ── Config ─────────────────────────────────────────────────────────────────
 const CFG = {
@@ -234,7 +247,7 @@ function LoyaltyGuestPage() {
                         {/* CTA buttons */}
                         <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
                             <Link
-                                href="/auth"
+                                href="/auth?mode=login"
                                 className="inline-flex items-center gap-2.5 rounded-2xl bg-white px-8 py-4 text-sm font-black text-orange-600 shadow-xl shadow-orange-900/25 transition-all hover:scale-[1.03] hover:shadow-orange-900/35 active:scale-[0.98]"
                             >
                                 <Lock size={15} strokeWidth={2.5} />
@@ -430,7 +443,7 @@ function LoyaltyGuestPage() {
                                     num: "1",
                                     title: "Create your FoodKnock account",
                                     desc: "Sign up or log in — it takes under 30 seconds and it's completely free.",
-                                    action: { label: "Sign In →", href: "/auth" },
+                                    action: { label: "Sign In →", href: "/auth?mode=login" },
                                 },
                                 {
                                     num: "2",
@@ -488,7 +501,7 @@ function LoyaltyGuestPage() {
                             </Link>
                             <p className="mt-4 text-[11px] text-white/60">
                                 Already have an account?{" "}
-                                <Link href="/auth" className="font-bold text-white hover:underline">Sign in here</Link>
+                                <Link href="/auth?mode=login" className="font-bold text-white hover:underline">Sign in here</Link>
                             </p>
                         </div>
                     </div>
@@ -518,8 +531,43 @@ export default function LoyaltyPage() {
     const [error, setError]   = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
 
-    const load = useCallback(async () => {
-        setLoading(true); setError(null);
+    // ── Tab state — URL-synced, mirrors the ?mode= convention already
+    // used by /auth (AuthTabs). Direct links, refresh, and browser
+    // back/forward all work because the tab lives in the URL, not just
+    // local state. An unknown/invalid ?tab= value safely falls back to
+    // "overview" rather than rendering nothing.
+    const router      = useRouter();
+    const pathname    = usePathname();
+    const searchParams = useSearchParams();
+    const rawTab       = searchParams.get("tab");
+    const activeTab: LoyaltyTab = isLoyaltyTab(rawTab) ? rawTab : "rewards";
+
+    // push() (not replace()) deliberately — browser back/forward must
+    // navigate between loyalty tabs (spec requirement), which replace()
+    // cannot do since it never adds a history entry.
+    const setTab = useCallback((tab: LoyaltyTab) => {
+        const qs = new URLSearchParams(searchParams.toString());
+        if (tab === "rewards") qs.delete("tab"); else qs.set("tab", tab);
+        const suffix = qs.toString();
+        router.push(suffix ? `${pathname}?${suffix}` : pathname, { scroll: false });
+    }, [router, pathname, searchParams]);
+
+    // History lives inside Rewards as a collapsible section, not its own
+    // tab — local UI state only, no new data source.
+    const [showFullHistory, setShowFullHistory] = useState(false);
+
+    // `background: true` (used by the Spin-refresh listener below) updates
+    // `data` WITHOUT touching `loading` — the full-page skeleton below
+    // (`if (loading) return ...`) unmounts everything under it, including
+    // SpinWheelSection. That unmount was silently resetting the wheel's
+    // in-progress rotation/result state back to its initial values right
+    // as a spin's reveal animation was settling — a real bug found via
+    // browser automation (the wheel's rendered rotation read back as 0
+    // immediately after every spin). The skeleton must only ever appear
+    // for the TRUE first load, never for a background balance refresh.
+    const load = useCallback(async (opts: { background?: boolean } = {}) => {
+        if (!opts.background) setLoading(true);
+        setError(null);
         try {
             const res  = await fetch("/api/loyalty", { credentials: "include" });
             const json = await res.json();
@@ -528,11 +576,21 @@ export default function LoyaltyPage() {
         } catch {
             setError("Something went wrong. Please refresh.");
         } finally {
-            setLoading(false);
+            if (!opts.background) setLoading(false);
         }
     }, []);
 
     useEffect(() => { load(); }, [load]);
+
+    // Phase 12 finalization — re-fetch the hero balance after a successful
+    // Spin (SpinWheelSection dispatches this once the result settles) so
+    // it doesn't keep showing the pre-spin number until a full reload.
+    // Background refresh — must NOT flip `loading` (see load()'s comment).
+    useEffect(() => {
+        const handler = () => load({ background: true });
+        window.addEventListener(LOYALTY_CHANGED_EVENT, handler);
+        return () => window.removeEventListener(LOYALTY_CHANGED_EVENT, handler);
+    }, [load]);
 
     // PERF PASS: moved before the early returns below (Rules of Hooks —
     // hooks must run unconditionally on every render) and wrapped in
@@ -555,19 +613,24 @@ export default function LoyaltyPage() {
 
     const shareViaWhatsApp = () => {
         if (!referralCode) return;
+        // REFERRAL EXPERIENCE 2.0: this used to drop a bare domain link
+        // into the message — the referral code existed but there was no
+        // actual deep link that auto-applied it. /auth?ref=CODE opens
+        // Create Account with the code pre-filled (see auth/page.tsx +
+        // RegisterForm.tsx) — same hardcoded-domain convention already
+        // used site-wide for canonical/share URLs (sitemap.ts, layout.tsx).
+        const referralLink = `https://www.foodknock.com/auth?ref=${referralCode}`;
         const text = encodeURIComponent(
 `🍔 You've gotta try FoodKnock!
 
 I've been ordering from them and the food is seriously next level — super fresh, fast delivery, and great prices.
 
-Use my referral code *${referralCode}* when you sign up 👉 https://foodknock.com
+Sign up with my link and your referral code is applied automatically 👉 ${referralLink}
 
 🎁 You'll get bonus loyalty points after your first delivery
 🎉 I get rewards too — so we both win!
 
-Trust me, once you try it you won't go back 😄
-
-Order now 👉 https://foodknock.com`
+Trust me, once you try it you won't go back 😄`
         );
         window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
     };
@@ -607,7 +670,7 @@ Order now 👉 https://foodknock.com`
                     <div className="text-5xl">⚠️</div>
                     <h2 className="text-xl font-black text-stone-800">Couldn't Load Your Rewards</h2>
                     <p className="max-w-xs text-sm text-stone-500">{error}</p>
-                    <button onClick={load} className="mt-2 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-6 py-2.5 text-sm font-bold text-orange-600 transition-all hover:bg-orange-100">
+                    <button onClick={() => load()} className="mt-2 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-6 py-2.5 text-sm font-bold text-orange-600 transition-all hover:bg-orange-100">
                         Try Again
                     </button>
                 </main>
@@ -627,250 +690,209 @@ Order now 👉 https://foodknock.com`
     const ptsToRedeem         = Math.max(0, minRedeem - balance);
 
     // ── Render ─────────────────────────────────────────────────────────────
+    // Compact dashboard, not a landing page: neutral cream canvas, no
+    // full-width orange hero. Orange is reserved for CTAs/active states.
     return (
         <>
             <Navbar />
-            <main className="min-h-screen bg-[#FFFBF5]">
+            <main className="min-h-screen bg-[#FFFDF8]">
+                <div className="mx-auto max-w-[1100px] space-y-4 px-4 py-6">
 
-                {/* ── Hero / balance ── */}
-                <div className="relative overflow-hidden bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400">
-                    <div
-                        className="pointer-events-none absolute inset-0 opacity-[0.08]"
-                        style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "22px 22px" }}
-                    />
-                    <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/20 blur-3xl" />
-                    <div className="pointer-events-none absolute -left-8 bottom-0 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-
-                    <div className="relative mx-auto max-w-2xl px-4 pb-12 pt-8">
-                        <Link
-                            href="/my-orders"
-                            className="mb-6 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-white/70 transition-colors hover:text-white"
-                        >
-                            <ArrowLeft size={12} /> My Orders
-                        </Link>
-
-                        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-3 py-1 backdrop-blur-sm">
-                            <Star size={11} className="text-yellow-200" fill="currentColor" />
-                            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-white">FoodKnock Rewards</span>
+                    {/* ── Compact header ── */}
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <Link
+                                href="/my-orders"
+                                className="mb-1 inline-flex items-center gap-1 text-[10.5px] font-bold uppercase tracking-widest text-stone-400 transition-colors hover:text-orange-600"
+                            >
+                                <ArrowLeft size={11} /> My Orders
+                            </Link>
+                            <h1 className="text-[26px] font-black leading-tight text-stone-900 md:text-[30px]">
+                                FoodKnock Rewards
+                            </h1>
+                            <p className="text-[12px] text-stone-500">Earn points. Redeem rewards. Spin &amp; win.</p>
                         </div>
+                        <div className="hidden h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-orange-100 bg-orange-50 text-xl sm:flex">
+                            ⭐
+                        </div>
+                    </div>
 
-                        <h1 className="text-3xl font-black text-white md:text-4xl">Your Points</h1>
-
-                        {/* Balance card */}
-                        <div className="mt-5 rounded-3xl border border-white/20 bg-white/15 p-6 backdrop-blur-sm shadow-xl shadow-orange-900/10">
-                            <div className="flex items-start justify-between gap-4">
-                                <div>
-                                    <p className="text-xs font-bold uppercase tracking-widest text-white/60">Available Balance</p>
-                                    <div className="mt-1.5 flex items-baseline gap-2">
-                                        <span className="text-6xl font-black leading-none text-white">{balance}</span>
-                                        <span className="text-xl font-bold text-white/60">pts</span>
-                                    </div>
-                                    <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/15 px-3 py-1">
-                                        <span className="text-sm font-black text-yellow-200">≈ ₹{balanceInRupees}</span>
-                                        <span className="text-xs text-white/60">in savings</span>
-                                    </div>
-                                </div>
-                                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/25 bg-white/20 text-3xl backdrop-blur-sm shadow-inner">
-                                    ⭐
-                                </div>
+                    {/* ── Compact balance card — horizontal on desktop, stacks on mobile ── */}
+                    <div className="rounded-2xl border border-orange-100 bg-white px-5 py-4 shadow-sm">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-baseline gap-3">
+                                <span className="text-4xl font-black leading-none text-stone-900">{balance}</span>
+                                <span className="text-sm font-bold text-stone-400">pts</span>
+                                <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-black text-amber-700">
+                                    ≈ ₹{balanceInRupees} savings
+                                </span>
                             </div>
-
-                            {/* Status chips */}
-                            <div className="mt-5 flex flex-wrap gap-2.5">
-                                <div className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 backdrop-blur-sm">
-                                    <ShoppingBag size={12} className="text-white/80" />
-                                    <span className="text-[12px] font-bold text-white">
-                                        {deliveredOrderCount} order{deliveredOrderCount !== 1 ? "s" : ""} delivered
-                                    </span>
-                                </div>
+                            <div className="flex flex-wrap items-center gap-2 text-[11.5px] font-bold">
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-stone-600">
+                                    <ShoppingBag size={11} /> {deliveredOrderCount} order{deliveredOrderCount !== 1 ? "s" : ""}
+                                </span>
                                 {canRedeem ? (
-                                    <div className="flex items-center gap-2 rounded-xl border border-yellow-300/30 bg-yellow-300/20 px-3 py-2">
-                                        <Zap size={12} className="text-yellow-200" />
-                                        <span className="text-[12px] font-bold text-yellow-100">Ready to redeem at checkout!</span>
-                                    </div>
+                                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                                        <Zap size={11} /> Ready to redeem
+                                    </span>
                                 ) : (
-                                    <div className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 backdrop-blur-sm">
-                                        <Info size={12} className="text-white/60" />
-                                        <span className="text-[12px] font-bold text-white/80">
-                                            {ptsToRedeem} more pts to unlock redemption
-                                        </span>
-                                    </div>
+                                    <span className="inline-flex items-center gap-1.5 rounded-full border border-stone-200 bg-stone-50 px-2.5 py-1 text-stone-500">
+                                        <Info size={11} /> {ptsToRedeem} more to redeem
+                                    </span>
                                 )}
                             </div>
-
-                            {/* Progress bar to redeem */}
-                            {!canRedeem && (
-                                <div className="mt-4">
-                                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
-                                        <div
-                                            className="h-full rounded-full bg-white/70 transition-all duration-700"
-                                            style={{ width: `${Math.min(100, (balance / minRedeem) * 100)}%` }}
-                                        />
-                                    </div>
-                                    <p className="mt-1.5 text-[10px] text-white/50">
-                                        {balance} / {minRedeem} pts to redeem
-                                    </p>
-                                </div>
-                            )}
                         </div>
-                    </div>
-                </div>
-
-                {/* ── Body ── */}
-                <div className="mx-auto max-w-2xl space-y-5 px-4 py-8">
-
-                    {/* ── Transaction history ── */}
-                    <div className="rounded-3xl border border-amber-100 bg-white shadow-sm overflow-hidden">
-                        <div className="flex items-center justify-between border-b border-amber-50 bg-amber-50/50 px-5 py-4">
-                            <div className="flex items-center gap-2.5">
-                                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-orange-100">
-                                    <Gift size={14} className="text-orange-600" />
-                                </div>
-                                <h2 className="text-sm font-black text-stone-900">Transaction History</h2>
+                        {!canRedeem && (
+                            <div className="mt-2.5 h-1 w-full overflow-hidden rounded-full bg-stone-100">
+                                <div
+                                    className="h-full rounded-full bg-orange-400 transition-all duration-700"
+                                    style={{ width: `${Math.min(100, (balance / minRedeem) * 100)}%` }}
+                                />
                             </div>
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-0.5 text-[11px] font-black text-orange-600">
-                                {ledger.length} {ledger.length === 1 ? "entry" : "entries"}
-                            </span>
-                        </div>
-                        <TransactionHistory ledger={ledger} />
+                        )}
                     </div>
 
-                    {/* ── How it works (compact) ── */}
-                    <div className="rounded-3xl border border-amber-100 bg-white p-5 shadow-sm">
-                        <div className="mb-4 flex items-center gap-2.5">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100">
-                                <TrendingUp size={14} className="text-amber-600" />
-                            </div>
-                            <h2 className="text-sm font-black text-stone-900">How It Works</h2>
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
-                            {[
-                                {
-                                    icon: "🛒", iconBg: "bg-orange-100",
-                                    title: "Order & Earn",
-                                    desc: `1 pt per ₹10 on delivered orders above ₹${CFG.MIN_ORDER}`,
-                                },
-                                {
-                                    icon: "🤝", iconBg: "bg-violet-100",
-                                    title: "Refer Friends",
-                                    desc: `You earn ${CFG.REF_REFERRER} pts · friend earns ${CFG.REF_REFEREE} pts after first delivery`,
-                                },
-                                {
-                                    icon: "💰", iconBg: "bg-emerald-100",
-                                    title: "Redeem & Save",
-                                    desc: `1 pt = ₹${pointValueInr} at checkout · up to ${CFG.MAX_REDEEM_PCT}% off any order`,
-                                },
-                            ].map((s) => (
-                                <div key={s.title} className="flex flex-col gap-2.5 rounded-2xl border border-amber-50 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-4">
-                                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${s.iconBg} text-xl shadow-sm`}>
-                                        {s.icon}
-                                    </div>
-                                    <p className="text-sm font-black text-stone-800">{s.title}</p>
-                                    <p className="text-[11px] leading-relaxed text-stone-500">{s.desc}</p>
-                                </div>
-                            ))}
-                        </div>
+                    {/* ── Primary tabs — REWARDS / SPIN only, high on the page ── */}
+                    <div
+                        role="tablist"
+                        aria-label="Loyalty sections"
+                        className="mx-auto flex w-full gap-1 rounded-xl border border-stone-200 bg-white p-1 shadow-sm sm:w-auto sm:min-w-[320px]"
+                    >
+                        {([
+                            { key: "rewards", label: "Rewards", icon: Wallet },
+                            { key: "spin",    label: "Spin",    icon: Sparkles },
+                        ] as const).map(({ key, label, icon: Icon }) => (
+                            <button
+                                key={key}
+                                role="tab"
+                                aria-selected={activeTab === key}
+                                onClick={() => setTab(key)}
+                                className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-4 py-2.5 text-[13px] font-black transition-colors ${
+                                    activeTab === key
+                                        ? "bg-orange-500 text-white shadow-sm"
+                                        : "text-stone-400 hover:bg-stone-50 hover:text-stone-600"
+                                }`}
+                            >
+                                <Icon size={14} />
+                                {label}
+                            </button>
+                        ))}
                     </div>
 
-                    {/* ── Referral code card ── */}
+                    {/* ── Refer & Earn — compact promo strip, not a giant card ── */}
                     {referralCode && (
-                        <div className="overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm">
-                            <div className="border-b border-amber-50 bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4">
-                                <div className="flex items-center gap-2.5">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100">
-                                        <Users size={14} className="text-violet-600" />
-                                    </div>
-                                    <h2 className="text-sm font-black text-stone-900">Your Referral Code</h2>
+                        <div className="flex flex-col gap-3 rounded-2xl border border-amber-100 bg-amber-50/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-center gap-2.5">
+                                <span className="text-lg">🎁</span>
+                                <div>
+                                    <p className="text-[12.5px] font-black text-stone-800">
+                                        Refer &amp; Earn — give <span className="text-amber-700">+{CFG.REF_REFEREE} pts</span>, earn <span className="text-orange-600">+{CFG.REF_REFERRER} pts</span>
+                                    </p>
+                                    <p className="text-[10.5px] text-stone-400">Credited after their first delivered order</p>
                                 </div>
                             </div>
-                            <div className="p-5">
-                                <p className="mb-5 text-[12px] leading-relaxed text-stone-500">
-                                    Share your code when friends sign up on FoodKnock. Once they place their first delivered order —
-                                    you earn <span className="font-bold text-violet-600">+{CFG.REF_REFERRER} pts</span> and
-                                    they earn <span className="font-bold text-amber-600">+{CFG.REF_REFEREE} pts</span> automatically.
-                                </p>
-
-                                {/* Code display + actions */}
-                                <div className="flex items-center gap-3">
-                                    <div className="flex-1 rounded-2xl border-2 border-dashed border-amber-300 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-4 text-center shadow-inner">
-                                        <span className="font-mono text-2xl font-black tracking-[0.3em] text-orange-600">
-                                            {referralCode}
-                                        </span>
-                                    </div>
-                                    <div className="flex flex-col gap-2">
-                                        <button
-                                            onClick={copyCode}
-                                            title="Copy code"
-                                            aria-label="Copy referral code"
-                                            className={`flex h-12 w-12 items-center justify-center rounded-2xl border transition-all active:scale-95 ${
-                                                copied
-                                                    ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                                                    : "border-amber-200 bg-amber-50 text-orange-600 hover:bg-amber-100"
-                                            }`}
-                                        >
-                                            {copied ? <CheckCheck size={18} /> : <Copy size={18} />}
-                                        </button>
-                                        <button
-                                            onClick={shareViaWhatsApp}
-                                            title="Share"
-                                            aria-label="Share referral code"
-                                            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-green-200 bg-green-50 text-green-600 transition-all hover:bg-green-100 active:scale-95"
-                                        >
-                                            <Share2 size={18} />
-                                        </button>
-                                    </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                                <div className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-1.5">
+                                    <span className="font-mono text-[13px] font-black tracking-[0.2em] text-orange-600">{referralCode}</span>
                                 </div>
-
-                                <div className="mt-4 grid grid-cols-2 gap-3">
-                                    <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-purple-50 p-3 text-center">
-                                        <p className="text-xl font-black text-violet-700">+{CFG.REF_REFERRER} pts</p>
-                                        <p className="text-[10px] font-semibold text-violet-400">You earn per referral</p>
-                                    </div>
-                                    <div className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50 to-yellow-50 p-3 text-center">
-                                        <p className="text-xl font-black text-amber-700">+{CFG.REF_REFEREE} pts</p>
-                                        <p className="text-[10px] font-semibold text-amber-400">Your friend earns</p>
-                                    </div>
-                                </div>
-                                <p className="mt-3 text-center text-[10px] text-stone-400">
-                                    Credited after your friend's first delivered order · Codes can't be self-applied
-                                </p>
+                                <button
+                                    onClick={copyCode}
+                                    title="Copy code"
+                                    aria-label="Copy referral code"
+                                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-all active:scale-95 ${
+                                        copied
+                                            ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                            : "border-stone-200 bg-white text-stone-500 hover:border-orange-200 hover:text-orange-600"
+                                    }`}
+                                >
+                                    {copied ? <CheckCheck size={15} /> : <Copy size={15} />}
+                                </button>
+                                <button
+                                    onClick={shareViaWhatsApp}
+                                    className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-orange-500 px-3 text-[12px] font-black text-white transition-all hover:bg-orange-600 active:scale-95"
+                                >
+                                    <Share2 size={13} strokeWidth={2.5} /> Share
+                                </button>
                             </div>
                         </div>
                     )}
 
-                    {/* ── Quick actions ── */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <Link
-                            href="/menu"
-                            className="group flex flex-col items-center gap-2.5 rounded-3xl border border-orange-100 bg-gradient-to-br from-orange-50 to-amber-50 p-5 text-center shadow-sm transition-all hover:border-orange-200 hover:shadow-md hover:shadow-orange-100/50 hover:-translate-y-0.5"
-                        >
-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm border border-orange-100">
-                                🍔
+                    {/* ── Tab content ── */}
+                    {activeTab === "rewards" && (
+                        <div className="space-y-4">
+                            {/* Reward Wallet — existing component, unmodified */}
+                            <RewardWalletSection />
+
+                            {/* Recent Activity — compact rows, no nested card chrome */}
+                            <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+                                <div className="flex items-center justify-between border-b border-stone-100 px-4 py-3">
+                                    <h2 className="text-[13px] font-black text-stone-800">Recent Activity</h2>
+                                    {ledger.length > 0 && (
+                                        <button
+                                            onClick={() => setShowFullHistory((v) => !v)}
+                                            className="text-[11px] font-black text-orange-600 hover:underline"
+                                        >
+                                            {showFullHistory ? "Show less" : "View Full History"}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {!showFullHistory ? (
+                                    ledger.length === 0 ? (
+                                        <p className="px-4 py-8 text-center text-[12px] text-stone-400">
+                                            No activity yet — place your first order to start earning!
+                                        </p>
+                                    ) : (
+                                        <div className="divide-y divide-stone-50">
+                                            {ledger.slice(0, 5).map((entry) => {
+                                                const meta = TYPE_META[entry.type] ?? { label: entry.type, icon: "📋", color: "text-stone-500", bg: "bg-stone-50 border-stone-100" };
+                                                const pts = Number(entry.points) || 0;
+                                                const isCredit = pts > 0;
+                                                return (
+                                                    <div key={entry.id} className="flex items-center gap-3 px-4 py-2.5">
+                                                        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-sm ${meta.bg}`}>
+                                                            {meta.icon}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className={`text-[12px] font-black ${meta.color}`}>{meta.label}</p>
+                                                            <p className="text-[10px] text-stone-300">{fmtDate(entry.createdAt)}</p>
+                                                        </div>
+                                                        <p className={`shrink-0 text-[13px] font-black ${isCredit ? "text-emerald-600" : "text-rose-500"}`}>
+                                                            {isCredit ? "+" : ""}{pts} pts
+                                                        </p>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )
+                                ) : (
+                                    // Existing TransactionHistory component, unmodified — reused
+                                    // in place rather than duplicated/rebuilt.
+                                    <TransactionHistory ledger={ledger} />
+                                )}
                             </div>
-                            <div>
-                                <span className="block text-sm font-black text-stone-800">Order &amp; Earn</span>
-                                <span className="block text-[10px] font-medium text-stone-500">1 pt per ₹10 spent</span>
-                            </div>
-                        </Link>
-                        <Link
-                            href="/checkout"
-                            className="group flex flex-col items-center gap-2.5 rounded-3xl border border-amber-100 bg-gradient-to-br from-amber-50 to-yellow-50 p-5 text-center shadow-sm transition-all hover:border-amber-200 hover:shadow-md hover:shadow-amber-100/50 hover:-translate-y-0.5"
-                        >
-                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-2xl shadow-sm border border-amber-100">
-                                💰
-                            </div>
-                            <div>
-                                <span className="block text-sm font-black text-stone-800">Redeem at Checkout</span>
-                                <span className={`block text-[10px] font-medium ${canRedeem ? "text-emerald-600" : "text-stone-500"}`}>
-                                    {canRedeem ? "✓ You're ready to save!" : `Need ${minRedeem} pts min`}
+                        </div>
+                    )}
+
+                    {activeTab === "spin" && (
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between rounded-2xl border border-stone-200 bg-white px-4 py-3 shadow-sm">
+                                <div>
+                                    <h2 className="text-[13px] font-black text-stone-800">FoodKnock Spin</h2>
+                                    <p className="text-[11px] text-stone-400">50 pts per spin</p>
+                                </div>
+                                <span className="rounded-full bg-amber-50 px-3 py-1 text-[12px] font-black text-amber-700">
+                                    Balance: {balance} pts
                                 </span>
                             </div>
-                        </Link>
-                    </div>
+                            {/* Existing Phase 12 Spin engine — unmodified */}
+                            <SpinWheelSection />
+                        </div>
+                    )}
 
-                    {/* ── Fine print ── */}
-                    <div className="rounded-2xl border border-stone-100 bg-stone-50 p-4">
-                        <p className="text-[11px] leading-relaxed text-stone-400">
+                    {/* ── Fine print — always visible regardless of tab ── */}
+                    <div className="rounded-xl border border-stone-100 bg-stone-50 px-4 py-3">
+                        <p className="text-[10.5px] leading-relaxed text-stone-400">
                             Points are awarded only on delivered orders above ₹{CFG.MIN_ORDER}. Referral rewards are granted after your friend's first delivered order.
                             Points cannot be earned on guest checkout. Minimum {minRedeem} points required to redeem. Up to {CFG.MAX_REDEEM_PCT}% of any order total
                             can be paid with points. 1 point = ₹{pointValueInr} value. Referral codes cannot be self-applied.

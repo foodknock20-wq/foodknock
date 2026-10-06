@@ -100,8 +100,14 @@ function fmtTime(iso: string) {
     });
 }
 
+// NOTE: this is a POINTS-BALANCE tier for display purposes only — it is a
+// different axis from the platform's one authoritative "VIP" definition
+// (₹2000+ LIFETIME SPEND, see VIP_SPEND_THRESHOLD in src/lib/offers.ts and
+// src/app/admin/users/page.tsx, reused by the Offer audience engine).
+// Deliberately labelled "Elite" here, not "VIP", so admins never conflate
+// "high points balance" with the Offer engine's VIP spend segment.
 function tierOf(pts: number): { label: string; color: string; dot: string } {
-    if (pts >= 200) return { label: "VIP", color: "text-yellow-300 border-yellow-500/30 bg-yellow-500/10", dot: "bg-yellow-400" };
+    if (pts >= 200) return { label: "Elite", color: "text-yellow-300 border-yellow-500/30 bg-yellow-500/10", dot: "bg-yellow-400" };
     if (pts >= 100) return { label: "Active", color: "text-amber-300 border-amber-500/25 bg-amber-500/10", dot: "bg-amber-400" };
     if (pts > 0) return { label: "Low", color: "text-stone-400 border-stone-600/30 bg-stone-700/20", dot: "bg-stone-500" };
     return { label: "Zero", color: "text-stone-600 border-stone-700/20 bg-stone-800/20", dot: "bg-stone-700" };
@@ -925,7 +931,7 @@ export default function AdminLoyaltyPage() {
                         </p>
                         <div className="space-y-1.5">
                             {[
-                                { label: "VIP", range: "200+ pts", color: "text-yellow-300 border-yellow-500/30 bg-yellow-500/10" },
+                                { label: "Elite", range: "200+ pts", color: "text-yellow-300 border-yellow-500/30 bg-yellow-500/10" },
                                 { label: "Active", range: "100–199 pts", color: "text-amber-300 border-amber-500/25 bg-amber-500/10" },
                                 { label: "Low", range: "1–99 pts", color: "text-stone-400 border-stone-600/30 bg-stone-700/20" },
                                 { label: "Zero", range: "0 pts", color: "text-stone-600 border-stone-700/20 bg-stone-800/20" },
