@@ -4,11 +4,20 @@
 //   2. Rejects base64 image updates — must use Cloudinary URL
 //   3. Added force-dynamic
 //   4. lean() on read queries
+//
+// PHASE 3: PATCH/DELETE previously had NO authorization — any
+// unauthenticated request could change a product's price/stock/name or
+// delete it outright, directly undermining Phase 2A's server-authoritative
+// pricing (an attacker doesn't need to touch the order flow if they can just
+// rewrite Product.price). Both are now admin-only, server-verified. GET
+// remains public — product detail pages need it unauthenticated.
 
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
 import Product from "@/models/Product";
+import Order from "@/models/Order";
+import { requireAdmin } from "@/lib/apiAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +54,11 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 // ─── PATCH /api/products/[id] ─────────────────────────────────────────────
 export async function PATCH(req: NextRequest, context: RouteContext) {
     try {
+        const admin = await requireAdmin(req);
+        if (!admin) {
+            return NextResponse.json({ success: false, message: "Admin access required" }, { status: 403 });
+        }
+
         await connectDB();
         const { id } = await context.params;
         if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -163,13 +177,36 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 }
 
 // ─── DELETE /api/products/[id] ────────────────────────────────────────────
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+export async function DELETE(req: NextRequest, context: RouteContext) {
     try {
+        const admin = await requireAdmin(req);
+        if (!admin) {
+            return NextResponse.json({ success: false, message: "Admin access required" }, { status: 403 });
+        }
+
         await connectDB();
         const { id } = await context.params;
         if (!mongoose.Types.ObjectId.isValid(id)) {
             return NextResponse.json({ success: false, message: "Invalid product ID" }, { status: 400 });
         }
+
+        // Phase 15E: production history must never break. A product that
+        // appears in ANY order's item snapshot (Order.items.productId) is
+        // never hard-deleted — the admin must deactivate it instead. This
+        // check is server-authoritative; the UI confirmation alone is not
+        // treated as sufficient (rule: deletion policy §7 / §35).
+        const hasOrderHistory = await Order.exists({ "items.productId": new mongoose.Types.ObjectId(id) });
+        if (hasOrderHistory) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: "HAS_ORDER_HISTORY",
+                    message: "This product has order history and can't be deleted. Deactivate it instead to hide it from customers.",
+                },
+                { status: 409 }
+            );
+        }
+
         const product = await Product.findByIdAndDelete(id);
         if (!product) {
             return NextResponse.json({ success: false, message: "Product not found" }, { status: 404 });

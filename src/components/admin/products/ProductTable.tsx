@@ -10,9 +10,15 @@ import Link from "next/link";
 import { toast } from "react-hot-toast";
 import {
     Pencil, Trash2, Package, CheckCircle2, XCircle,
-    Star, AlertTriangle, Loader2, Search, ImageOff,
+    Star, AlertTriangle, Loader2, ImageOff, Power, Check, X as XIcon,
 } from "lucide-react";
 import { cdnImage } from "@/lib/cdnImage";
+import { LOW_STOCK_THRESHOLD } from "@/lib/catalogConstants";
+
+// Phase 15A: search is now server-side (AdminListSearchBar on the parent
+// page, filtering via Product.find({$or:[...]}) before pagination) — this
+// component only ever receives the current page's rows and renders them
+// as-is. No client-side filtering/search state lives here anymore.
 
 // ─── Types ────────────────────────────────────────────────────────────────
 export type ProductRow = {
@@ -55,7 +61,7 @@ function StockBadge({ stock }: { stock: number }) {
     const style =
         stock === 0
             ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
-            : stock <= 5
+            : stock <= LOW_STOCK_THRESHOLD
                 ? "bg-amber-500/10 text-amber-400 border-amber-500/20"
                 : "bg-stone-800/60 text-stone-500 border-stone-700/40";
 
@@ -63,6 +69,68 @@ function StockBadge({ stock }: { stock: number }) {
         <span className={`inline-flex items-center rounded-lg border px-2 py-0.5 text-[11px] font-bold ${style}`}>
             {stock}
         </span>
+    );
+}
+
+// ─── Stock quick-adjust — click to edit, Enter/blur to save ────────────────
+function StockEditor({ productId, stock, onSaved }: { productId: string; stock: number; onSaved: (next: number) => void }) {
+    const [editing, setEditing] = useState(false);
+    const [value, setValue] = useState(String(stock));
+    const [saving, setSaving] = useState(false);
+
+    const save = async () => {
+        const next = Number(value);
+        if (!Number.isFinite(next) || next < 0 || !Number.isInteger(next)) {
+            toast.error("Enter a valid stock quantity");
+            return;
+        }
+        if (next === stock) { setEditing(false); return; }
+        setSaving(true);
+        try {
+            const res = await fetch(`/api/products/${productId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ stock: next }),
+            });
+            const data = await res.json();
+            if (!res.ok) { toast.error(data.message ?? "Failed to update stock"); return; }
+            toast.success("Stock updated");
+            onSaved(next);
+            setEditing(false);
+        } catch {
+            toast.error("Network error. Please try again.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (!editing) {
+        return (
+            <button onClick={() => { setValue(String(stock)); setEditing(true); }} title="Click to adjust stock">
+                <StockBadge stock={stock} />
+            </button>
+        );
+    }
+
+    return (
+        <div className="flex items-center gap-1">
+            <input
+                type="number"
+                min={0}
+                autoFocus
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }}
+                disabled={saving}
+                className="h-7 w-16 rounded-lg border border-amber-500/40 bg-white/[0.05] px-2 text-[12px] font-bold text-stone-200 focus:outline-none"
+            />
+            <button onClick={save} disabled={saving} className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25">
+                {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={saving} className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.04] text-stone-300 hover:text-stone-100">
+                <XIcon size={12} />
+            </button>
+        </div>
     );
 }
 
@@ -183,7 +251,7 @@ function EditBtn({ href }: { href: string }) {
         <Link
             href={href}
             title="Edit"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.02] text-stone-600 transition-all hover:border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-400"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.02] text-stone-300 transition-all hover:border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-400"
         >
             <Pencil size={12} strokeWidth={2} />
         </Link>
@@ -195,9 +263,25 @@ function DeleteBtn({ onClick }: { onClick: () => void }) {
         <button
             onClick={onClick}
             title="Delete"
-            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.02] text-stone-600 transition-all hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
+            className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.02] text-stone-300 transition-all hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
         >
             <Trash2 size={12} strokeWidth={2} />
+        </button>
+    );
+}
+
+function ToggleBtn({ isAvailable, loading, onClick }: { isAvailable: boolean; loading: boolean; onClick: () => void }) {
+    return (
+        <button
+            onClick={onClick}
+            disabled={loading}
+            title={isAvailable ? "Deactivate" : "Activate"}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all disabled:opacity-50 ${isAvailable
+                    ? "border-white/[0.06] bg-white/[0.02] text-stone-300 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
+                    : "border-white/[0.06] bg-white/[0.02] text-stone-300 hover:border-emerald-500/30 hover:bg-emerald-500/10 hover:text-emerald-400"
+                }`}
+        >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} strokeWidth={2} />}
         </button>
     );
 }
@@ -205,15 +289,12 @@ function DeleteBtn({ onClick }: { onClick: () => void }) {
 // ─── Component ────────────────────────────────────────────────────────────
 export default function ProductTable({ products: initialProducts }: Props) {
     const router = useRouter();
-    const [products, setProducts] = useState<ProductRow[]>(initialProducts);
+    const products = initialProducts; // Phase 15A: one server-rendered page, no local copy needed
     const [deleting, setDeleting] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<ProductRow | null>(null);
-    const [search, setSearch] = useState("");
-
-    const filtered = products.filter((p) =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.category.toLowerCase().includes(search.toLowerCase())
-    );
+    const [toggling, setToggling] = useState<string | null>(null);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [bulkLoading, setBulkLoading] = useState(false);
 
     const handleDelete = async () => {
         if (!deleteTarget) return;
@@ -222,7 +303,6 @@ export default function ProductTable({ products: initialProducts }: Props) {
             const res = await fetch(`/api/products/${deleteTarget._id}`, { method: "DELETE" });
             const data = await res.json();
             if (!res.ok) { toast.error(data.message ?? "Failed to delete"); return; }
-            setProducts((prev) => prev.filter((p) => p._id !== deleteTarget._id));
             toast.success("Product deleted");
             router.refresh();
         } catch {
@@ -230,6 +310,54 @@ export default function ProductTable({ products: initialProducts }: Props) {
         } finally {
             setDeleting(null);
             setDeleteTarget(null);
+        }
+    };
+
+    const handleToggleAvailable = async (product: ProductRow) => {
+        setToggling(product._id);
+        try {
+            const res = await fetch(`/api/products/${product._id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ isAvailable: !product.isAvailable }),
+            });
+            const data = await res.json();
+            if (!res.ok) { toast.error(data.message ?? "Failed to update"); return; }
+            toast.success(product.isAvailable ? "Product deactivated" : "Product activated");
+            router.refresh();
+        } catch {
+            toast.error("Network error. Please try again.");
+        } finally {
+            setToggling(null);
+        }
+    };
+
+    const toggleSelected = (id: string) => {
+        setSelected((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const handleBulkStatus = async (isAvailable: boolean) => {
+        if (selected.size === 0) return;
+        setBulkLoading(true);
+        try {
+            const res = await fetch("/api/admin/products/bulk-status", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ids: [...selected], isAvailable }),
+            });
+            const data = await res.json();
+            if (!res.ok) { toast.error(data.message ?? "Bulk update failed"); return; }
+            toast.success(`${data.updatedCount} product${data.updatedCount !== 1 ? "s" : ""} ${isAvailable ? "activated" : "deactivated"}`);
+            setSelected(new Set());
+            router.refresh();
+        } catch {
+            toast.error("Network error. Please try again.");
+        } finally {
+            setBulkLoading(false);
         }
     };
 
@@ -244,51 +372,37 @@ export default function ProductTable({ products: initialProducts }: Props) {
                 />
             )}
 
-            {/* ── Search bar ── */}
-            <div className="mb-5">
-                <div className="relative w-full max-w-sm">
-                    <Search
-                        size={13}
-                        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-600"
-                        strokeWidth={2}
-                    />
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search products…"
-                        className="w-full rounded-xl border border-white/[0.07] bg-white/[0.035] py-2.5 pl-9 pr-9 text-[13px] text-stone-300 placeholder:text-stone-700 transition-all focus:border-amber-500/40 focus:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-amber-500/12"
-                    />
-                    {search && (
+            {selected.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5">
+                    <span className="text-[12px] font-bold text-amber-400">{selected.size} selected</span>
+                    <div className="flex items-center gap-2">
                         <button
-                            onClick={() => setSearch("")}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-600 hover:text-stone-400"
+                            onClick={() => handleBulkStatus(true)}
+                            disabled={bulkLoading}
+                            className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-1.5 text-[11px] font-bold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
                         >
-                            <XCircle size={13} />
+                            Activate
                         </button>
-                    )}
-                </div>
-                {search && (
-                    <p className="mt-1.5 text-[11px] text-stone-600">
-                        {filtered.length} result{filtered.length !== 1 ? "s" : ""}
-                    </p>
-                )}
-            </div>
-
-            {filtered.length === 0 ? (
-                products.length === 0 ? (
-                    <EmptyState />
-                ) : (
-                    <div className="flex flex-col items-center justify-center py-16 gap-2 text-center">
-                        <Search size={20} className="text-stone-700" />
-                        <p className="text-[13px] text-stone-600">
-                            No products match <span className="text-stone-400">&quot;{search}&quot;</span>
-                        </p>
-                        <button onClick={() => setSearch("")} className="text-[12px] text-amber-500 hover:text-amber-400">
-                            Clear search
+                        <button
+                            onClick={() => handleBulkStatus(false)}
+                            disabled={bulkLoading}
+                            className="rounded-lg border border-rose-500/25 bg-rose-500/10 px-3 py-1.5 text-[11px] font-bold text-rose-400 transition-colors hover:bg-rose-500/20 disabled:opacity-50"
+                        >
+                            Deactivate
+                        </button>
+                        <button
+                            onClick={() => setSelected(new Set())}
+                            disabled={bulkLoading}
+                            className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold text-stone-300 hover:text-stone-100"
+                        >
+                            Clear
                         </button>
                     </div>
-                )
+                </div>
+            )}
+
+            {products.length === 0 ? (
+                <EmptyState />
             ) : (
                 <>
                     {/* ══ Desktop table ══ */}
@@ -299,6 +413,7 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                     className="border-b border-white/[0.055]"
                                     style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.015) 100%)" }}
                                 >
+                                    <th className="w-10 px-4 py-3.5" />
                                     {["Product", "Category", "Price", "Stock", "Status", "Actions"].map((h) => (
                                         <th
                                             key={h}
@@ -310,11 +425,19 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.03]">
-                                {filtered.map((product) => (
+                                {products.map((product) => (
                                     <tr
                                         key={product._id}
                                         className="group transition-colors hover:bg-white/[0.018]"
                                     >
+                                        <td className="px-4 py-3.5">
+                                            <input
+                                                type="checkbox"
+                                                checked={selected.has(product._id)}
+                                                onChange={() => toggleSelected(product._id)}
+                                                className="h-4 w-4 rounded border-white/20 bg-white/[0.05] accent-amber-500"
+                                            />
+                                        </td>
                                         <td className="px-4 py-3.5">
                                             <div className="flex items-center gap-3">
                                                 <ProductThumb image={product.image} name={product.name} />
@@ -339,7 +462,11 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                             <PriceCell price={product.price} compareAtPrice={product.compareAtPrice} />
                                         </td>
                                         <td className="px-4 py-3.5">
-                                            <StockBadge stock={product.stock} />
+                                            <StockEditor
+                                                productId={product._id}
+                                                stock={product.stock}
+                                                onSaved={() => router.refresh()}
+                                            />
                                         </td>
                                         <td className="px-4 py-3.5">
                                             <div className="flex items-center gap-2">
@@ -364,6 +491,11 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                         </td>
                                         <td className="px-4 py-3.5">
                                             <div className="flex items-center gap-1.5">
+                                                <ToggleBtn
+                                                    isAvailable={product.isAvailable}
+                                                    loading={toggling === product._id}
+                                                    onClick={() => handleToggleAvailable(product)}
+                                                />
                                                 <EditBtn href={`/admin/products/edit/${product._id}`} />
                                                 <DeleteBtn onClick={() => setDeleteTarget(product)} />
                                             </div>
@@ -376,12 +508,18 @@ export default function ProductTable({ products: initialProducts }: Props) {
 
                     {/* ══ Mobile cards ══ */}
                     <div className="space-y-3 md:hidden">
-                        {filtered.map((product) => (
+                        {products.map((product) => (
                             <div
                                 key={product._id}
                                 className="rounded-2xl border border-white/[0.055] bg-gradient-to-b from-[#111118] to-[#0d0d14] overflow-hidden"
                             >
                                 <div className="flex items-start gap-3 p-3.5">
+                                    <input
+                                        type="checkbox"
+                                        checked={selected.has(product._id)}
+                                        onChange={() => toggleSelected(product._id)}
+                                        className="mt-1 h-4 w-4 shrink-0 rounded border-white/20 bg-white/[0.05] accent-amber-500"
+                                    />
                                     <ProductThumbLarge image={product.image} name={product.name} />
 
                                     <div className="min-w-0 flex-1">
@@ -404,7 +542,11 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                             <span className="rounded-full border border-amber-500/20 bg-amber-500/[0.07] px-2 py-0.5 text-[10px] font-bold text-amber-400">
                                                 {product.category}
                                             </span>
-                                            <StockBadge stock={product.stock} />
+                                            <StockEditor
+                                                productId={product._id}
+                                                stock={product.stock}
+                                                onSaved={() => router.refresh()}
+                                            />
                                             <span
                                                 className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${product.isAvailable
                                                     ? "border-emerald-500/20 bg-emerald-500/[0.07] text-emerald-400"
@@ -425,6 +567,11 @@ export default function ProductTable({ products: initialProducts }: Props) {
                                     </div>
 
                                     <div className="flex shrink-0 flex-col gap-1.5">
+                                        <ToggleBtn
+                                            isAvailable={product.isAvailable}
+                                            loading={toggling === product._id}
+                                            onClick={() => handleToggleAvailable(product)}
+                                        />
                                         <EditBtn href={`/admin/products/edit/${product._id}`} />
                                         <DeleteBtn onClick={() => setDeleteTarget(product)} />
                                     </div>
@@ -439,10 +586,6 @@ export default function ProductTable({ products: initialProducts }: Props) {
                         ))}
                     </div>
 
-                    <p className="mt-4 text-right text-[11px] text-stone-700">
-                        Showing <span className="text-stone-500">{filtered.length}</span> of{" "}
-                        <span className="text-stone-500">{products.length}</span> product{products.length !== 1 ? "s" : ""}
-                    </p>
                 </>
             )}
         </>

@@ -59,10 +59,10 @@ type Props = {
 export default function OrderTimeline({ status, orderType, createdAt }: Props) {
     if (status === "cancelled") {
         return (
-            <div className="flex flex-col items-center rounded-2xl border border-red-100 bg-red-50 p-8 text-center">
-                <XCircle size={44} className="text-red-400" strokeWidth={1.5} />
-                <p className="mt-4 text-xl font-black text-stone-900">Order Cancelled</p>
-                <p className="mt-2 text-sm text-stone-500">
+            <div className="flex flex-col items-center rounded-fk-lg border border-fk-danger/25 bg-fk-danger/5 p-8 text-center">
+                <XCircle size={44} className="text-fk-danger" strokeWidth={1.5} />
+                <p className="mt-4 text-xl font-black text-fk-text">Order Cancelled</p>
+                <p className="mt-2 text-sm text-fk-text-secondary">
                     This order has been cancelled. Contact us if you need help.
                 </p>
             </div>
@@ -90,30 +90,30 @@ export default function OrderTimeline({ status, orderType, createdAt }: Props) {
                             <div
                                 className={`relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                                     isCompleted
-                                        ? "border-emerald-400 bg-emerald-50"
+                                        ? "border-fk-success/40 bg-fk-success/10"
                                         : isActive
-                                        ? "border-orange-400 bg-orange-50"
-                                        : "border-stone-200 bg-stone-50"
+                                        ? "border-[var(--fk-accent)]/50 bg-fk-surface-selected"
+                                        : "border-fk-border bg-fk-surface-interactive"
                                 }`}
                             >
                                 {isCompleted ? (
-                                    <CheckCircle2 size={16} className="text-emerald-500" strokeWidth={2.5} />
+                                    <CheckCircle2 size={16} className="text-fk-success" strokeWidth={2.5} />
                                 ) : isActive ? (
-                                    <step.icon size={16} className="text-orange-500" strokeWidth={2} />
+                                    <step.icon size={16} className="text-[var(--fk-accent)]" strokeWidth={2} />
                                 ) : (
-                                    <Circle size={16} className="text-stone-300" strokeWidth={2} />
+                                    <Circle size={16} className="text-fk-text-tertiary" strokeWidth={2} />
                                 )}
 
                                 {/* Pulse ring on active step */}
                                 {isActive && (
-                                    <span className="absolute -inset-1 animate-ping rounded-full border-2 border-orange-300/50" />
+                                    <span className="absolute -inset-1 animate-ping rounded-full border-2 border-[var(--fk-accent)]/30 motion-reduce:animate-none" />
                                 )}
                             </div>
 
                             {!isLast && (
                                 <div
                                     className={`mt-1 w-0.5 min-h-[28px] flex-1 rounded-full transition-colors ${
-                                        isCompleted ? "bg-emerald-300" : "bg-stone-200"
+                                        isCompleted ? "bg-fk-success/40" : "bg-fk-border"
                                     }`}
                                 />
                             )}
@@ -124,23 +124,23 @@ export default function OrderTimeline({ status, orderType, createdAt }: Props) {
                             <p
                                 className={`text-sm font-bold leading-none ${
                                     isCompleted
-                                        ? "text-stone-400"
+                                        ? "text-fk-text-tertiary"
                                         : isActive
-                                        ? "text-stone-900"
-                                        : "text-stone-300"
+                                        ? "text-fk-text"
+                                        : "text-fk-text-tertiary"
                                 }`}
                             >
                                 {step.label}
                             </p>
                             <p
                                 className={`mt-1.5 text-xs leading-relaxed ${
-                                    isActive ? "text-stone-500" : "text-stone-300"
+                                    isActive ? "text-fk-text-secondary" : "text-fk-text-tertiary"
                                 }`}
                             >
                                 {step.description}
                             </p>
                             {isActive && step.status === "received" && createdAt && (
-                                <p className="mt-1 text-[10px] text-stone-400">
+                                <p className="mt-1 text-[10px] text-fk-text-tertiary">
                                     {new Date(createdAt).toLocaleString("en-IN")}
                                 </p>
                             )}

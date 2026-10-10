@@ -4,13 +4,19 @@
 // Premium Customer Intelligence Table — FoodKnock
 // PRODUCTION REWRITE: timer-ref cleanup, no stale closures, zero memory leaks
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useCallback, useRef, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { toast } from "react-hot-toast";
 import {
-    Search, Users, CheckCircle2, XCircle, ShieldOff, ShieldCheck,
-    Phone, Calendar, ShoppingBag, Crown, Loader2, Copy, MessageCircle,
-    Star, TrendingUp, SlidersHorizontal, Zap, Award,
+    Users, CheckCircle2, XCircle, ShieldOff, ShieldCheck,
+    Crown, Loader2, Copy, MessageCircle, Star, Zap, Award, Sparkles,
 } from "lucide-react";
+import type { CustomerType } from "@/app/admin/users/page";
+
+// Phase 15A: search + sort/status filters are now server-side
+// (AdminListSearchBar + UserSortFilter on the parent page) — this
+// component only ever receives the current page's rows.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,51 +32,22 @@ export type UserRow = {
     avgOrder: number;
     isVip: boolean;
     isRepeat: boolean;
+    customerType: CustomerType;
+    lastOrderAt: string | null;
     loyaltyPoints: number;
     createdAt: string;
 };
 
-type SortKey =
-    | "newest"
-    | "oldest"
-    | "most_orders"
-    | "zero_orders"
-    | "highest_spend"
-    | "repeat_buyers"
-    | "active_only"
-    | "blocked_only";
-
 type Props = { users: UserRow[] };
 
-// ─── Sort config ──────────────────────────────────────────────────────────────
-
-const SORT_OPTIONS: { key: SortKey; label: string }[] = [
-    { key: "newest", label: "Newest Joined" },
-    { key: "oldest", label: "Oldest Joined" },
-    { key: "most_orders", label: "Most Orders" },
-    { key: "highest_spend", label: "Top Spenders" },
-    { key: "repeat_buyers", label: "Repeat Buyers" },
-    { key: "zero_orders", label: "Zero Orders" },
-    { key: "active_only", label: "Active Only" },
-    { key: "blocked_only", label: "Blocked Only" },
-];
-
-// ─── Pure sort/filter helper (no closure over state, safe to call in useMemo) ─
-
-function applySort(list: UserRow[], key: SortKey): UserRow[] {
-    // Always copy to avoid mutating the source array
-    const arr = [...list];
-    switch (key) {
-        case "newest": return arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-        case "oldest": return arr.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        case "most_orders": return arr.sort((a, b) => b.ordersCount - a.ordersCount);
-        case "highest_spend": return arr.sort((a, b) => b.totalSpend - a.totalSpend);
-        case "repeat_buyers": return arr.filter((u) => u.isRepeat).sort((a, b) => b.ordersCount - a.ordersCount);
-        case "zero_orders": return arr.filter((u) => u.ordersCount === 0);
-        case "active_only": return arr.filter((u) => u.isActive);
-        case "blocked_only": return arr.filter((u) => !u.isActive);
-        default: return arr;
-    }
+function lastOrderLabel(iso: string | null): string {
+    if (!iso) return "Never";
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 30) return `${days}d ago`;
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
 }
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
@@ -84,23 +61,39 @@ function RoleBadge({ role }: { role: "user" | "admin" }) {
     );
 }
 
-function CustomerBadge({ isVip, isRepeat, ordersCount }: { isVip: boolean; isRepeat: boolean; ordersCount: number }) {
+// Phase 15F: the badge previously shown here for "ordersCount === 0" was
+// labeled "New" — overloaded with a different meaning than the Customers
+// 2.0 brief's 4-tier taxonomy (New/Returning/Repeat/No Orders). Relabeled
+// "No Orders" for that zero case; "New" is now its own tier (exactly 1
+// order), distinct from "Returning" (2..REPEAT_ORDER_COUNT-1) — see
+// classifyCustomerType() in admin/users/page.tsx for the exact rule. VIP
+// remains an independent spend-based overlay, shown regardless of tier.
+function CustomerBadge({ isVip, customerType }: { isVip: boolean; customerType: CustomerType }) {
     if (isVip) return (
         <span className="inline-flex items-center gap-1 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-yellow-300">
             <Award size={8} /> VIP
         </span>
     );
-    if (isRepeat) return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-sky-400">
+    if (customerType === "repeat") return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-emerald-400">
             <Zap size={8} /> Repeat
         </span>
     );
-    if (ordersCount === 0) return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-stone-700/40 bg-stone-800/40 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-stone-600">
+    if (customerType === "returning") return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-violet-400">
+            <Sparkles size={8} /> Returning
+        </span>
+    );
+    if (customerType === "new") return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-sky-400">
             New
         </span>
     );
-    return null;
+    return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-stone-700/40 bg-stone-800/40 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-stone-400">
+            No Orders
+        </span>
+    );
 }
 
 function Avatar({ name, isVip }: { name: string; isVip: boolean }) {
@@ -117,10 +110,8 @@ function Avatar({ name, isVip }: { name: string; isVip: boolean }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function UserTable({ users: initialUsers }: Props) {
-    const [users, setUsers] = useState<UserRow[]>(initialUsers);
-    const [search, setSearch] = useState("");
-    const [sortKey, setSortKey] = useState<SortKey>("newest");
+export default function UserTable({ users }: Props) {
+    const router = useRouter();
     const [loading, setLoading] = useState<string | null>(null);
     const [copied, setCopied] = useState<string | null>(null);
 
@@ -134,25 +125,6 @@ export default function UserTable({ users: initialUsers }: Props) {
             if (copyTimerRef.current !== null) clearTimeout(copyTimerRef.current);
         };
     }, []);
-
-    // ── Derived filtered + sorted list ────────────────────────────────────
-    // useMemo dependency array is stable — only recomputes when these 3 change.
-    // applySort is a module-level pure function so it is never a stale closure.
-    const visible = useMemo<UserRow[]>(() => {
-        let list: UserRow[] = users;
-
-        if (search.trim()) {
-            const q = search.toLowerCase();
-            list = list.filter(
-                (u) =>
-                    u.name.toLowerCase().includes(q) ||
-                    u.email.toLowerCase().includes(q) ||
-                    u.phone.includes(q)
-            );
-        }
-
-        return applySort(list, sortKey);
-    }, [users, search, sortKey]);
 
     // ── Handlers ─────────────────────────────────────────────────────────
 
@@ -174,17 +146,15 @@ export default function UserTable({ users: initialUsers }: Props) {
                 toast.error(data.message ?? "Failed to update user");
                 return;
             }
-            setUsers((prev) =>
-                prev.map((u) => (u._id === user._id ? { ...u, isActive: nextActive } : u))
-            );
             toast.success(nextActive ? "User unblocked" : "User blocked");
+            router.refresh();
         } catch {
             toast.error("Network error. Please try again.");
         } finally {
             loadingUserRef.current = null;
             setLoading(null);
         }
-    }, []); // no deps — reads user arg from param, setters are stable
+    }, [router]);
 
     const handleCopyPhone = useCallback((phone: string, id: string) => {
         if (!phone) return;
@@ -215,56 +185,14 @@ export default function UserTable({ users: initialUsers }: Props) {
 
     return (
         <>
-            {/* ── Controls bar ──────────────────────────────────────────── */}
-            <div className="mb-5 space-y-3">
-                {/* Search */}
-                <div className="relative max-w-sm">
-                    <Search
-                        size={13}
-                        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-600"
-                        strokeWidth={2}
-                    />
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search name, email or phone…"
-                        className="w-full rounded-xl border border-white/[0.07] bg-white/[0.04] py-2.5 pl-9 pr-4 text-sm text-stone-300 placeholder:text-stone-700 focus:border-amber-500/40 focus:outline-none focus:ring-2 focus:ring-amber-500/15"
-                    />
-                </div>
-
-                {/* Sort pills */}
-                <div className="flex items-center gap-2">
-                    <SlidersHorizontal size={11} className="shrink-0 text-stone-600" />
-                    <div className="flex flex-wrap gap-1.5">
-                        {SORT_OPTIONS.map(({ key, label }) => (
-                            <button
-                                key={key}
-                                onClick={() => setSortKey(key)}
-                                className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider transition-all duration-150 ${sortKey === key
-                                        ? "border border-amber-500/35 bg-amber-500/15 text-amber-400"
-                                        : "border border-white/[0.06] bg-white/[0.02] text-stone-600 hover:border-white/10 hover:text-stone-400"
-                                    }`}
-                            >
-                                {label}
-                            </button>
-                        ))}
-                    </div>
-                </div>
-            </div>
-
-            {visible.length === 0 ? (
+            {users.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-center">
                     <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.02]">
                         <Users size={22} className="text-stone-700" strokeWidth={1.5} />
                     </div>
-                    <p className="font-serif text-base font-bold text-stone-500">
-                        {users.length === 0 ? "No users yet" : "No users match this filter"}
-                    </p>
+                    <p className="text-base font-bold text-stone-300">No users found</p>
                     <p className="mt-1 text-xs text-stone-700">
-                        {users.length === 0
-                            ? "Registered customers will appear here."
-                            : "Try a different search or sort option."}
+                        Try a different search or filter.
                     </p>
                 </div>
             ) : (
@@ -280,8 +208,8 @@ export default function UserTable({ users: initialUsers }: Props) {
                                         "Orders · Spend",
                                         "Avg Order",
                                         "Loyalty",
+                                        "Last Order",
                                         "Status",
-                                        "Joined",
                                         "Actions",
                                     ].map((h) => (
                                         <th
@@ -294,7 +222,7 @@ export default function UserTable({ users: initialUsers }: Props) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
-                                {visible.map((user) => (
+                                {users.map((user) => (
                                     <tr
                                         key={user._id}
                                         className={`group transition-colors hover:bg-white/[0.025] ${!user.isActive ? "opacity-40" : ""
@@ -308,11 +236,7 @@ export default function UserTable({ users: initialUsers }: Props) {
                                                     <div className="flex items-center gap-2">
                                                         <span className="font-bold text-stone-200">{user.name}</span>
                                                         <RoleBadge role={user.role} />
-                                                        <CustomerBadge
-                                                            isVip={user.isVip}
-                                                            isRepeat={user.isRepeat}
-                                                            ordersCount={user.ordersCount}
-                                                        />
+                                                        <CustomerBadge isVip={user.isVip} customerType={user.customerType} />
                                                     </div>
                                                     <p className="text-[11px] text-stone-600">{user.email}</p>
                                                 </div>
@@ -331,7 +255,7 @@ export default function UserTable({ users: initialUsers }: Props) {
                                                             onClick={() => handleCopyPhone(user.phone, user._id)}
                                                             title="Copy phone"
                                                             aria-label="Copy phone number"
-                                                            className="opacity-0 group-hover:opacity-100 text-stone-700 hover:text-stone-400 transition-all"
+                                                            className="opacity-0 group-hover:opacity-100 text-stone-300 hover:text-stone-100 transition-all"
                                                         >
                                                             <Copy size={11} />
                                                         </button>
@@ -339,7 +263,7 @@ export default function UserTable({ users: initialUsers }: Props) {
                                                             onClick={() => handleWhatsApp(user.phone)}
                                                             title="Open WhatsApp"
                                                             aria-label="Open WhatsApp chat"
-                                                            className="opacity-0 group-hover:opacity-100 text-stone-700 hover:text-emerald-400 transition-all"
+                                                            className="opacity-0 group-hover:opacity-100 text-stone-300 hover:text-emerald-400 transition-all"
                                                         >
                                                             <MessageCircle size={11} />
                                                         </button>
@@ -382,6 +306,11 @@ export default function UserTable({ users: initialUsers }: Props) {
                                             )}
                                         </td>
 
+                                        {/* Last Order */}
+                                        <td className="px-4 py-3.5">
+                                            <span className="text-[11px] text-stone-400">{lastOrderLabel(user.lastOrderAt)}</span>
+                                        </td>
+
                                         {/* Status */}
                                         <td className="px-4 py-3.5">
                                             {user.isActive ? (
@@ -395,39 +324,36 @@ export default function UserTable({ users: initialUsers }: Props) {
                                             )}
                                         </td>
 
-                                        {/* Joined */}
-                                        <td className="px-4 py-3.5">
-                                            <span className="text-[11px] text-stone-600">
-                                                {new Date(user.createdAt).toLocaleDateString("en-IN", {
-                                                    day: "2-digit",
-                                                    month: "short",
-                                                    year: "numeric",
-                                                })}
-                                            </span>
-                                        </td>
-
                                         {/* Actions */}
                                         <td className="px-4 py-3.5">
-                                            {user.role !== "admin" && (
-                                                <button
-                                                    onClick={() => handleToggle(user)}
-                                                    disabled={loading === user._id}
-                                                    aria-label={user.isActive ? "Block user" : "Unblock user"}
-                                                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-black transition-all disabled:opacity-50 ${user.isActive
-                                                            ? "border-rose-500/20 bg-rose-500/8 text-rose-400 hover:bg-rose-500/15"
-                                                            : "border-emerald-500/20 bg-emerald-500/8 text-emerald-400 hover:bg-emerald-500/15"
-                                                        }`}
+                                            <div className="flex items-center gap-1.5">
+                                                <Link
+                                                    href={`/admin/users/${user._id}`}
+                                                    className="rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-bold text-stone-200 transition-all hover:border-amber-500/30 hover:bg-amber-500/10 hover:text-amber-300"
                                                 >
-                                                    {loading === user._id ? (
-                                                        <Loader2 size={10} className="animate-spin" />
-                                                    ) : user.isActive ? (
-                                                        <ShieldOff size={10} />
-                                                    ) : (
-                                                        <ShieldCheck size={10} />
-                                                    )}
-                                                    {user.isActive ? "Block" : "Unblock"}
-                                                </button>
-                                            )}
+                                                    View
+                                                </Link>
+                                                {user.role !== "admin" && (
+                                                    <button
+                                                        onClick={() => handleToggle(user)}
+                                                        disabled={loading === user._id}
+                                                        aria-label={user.isActive ? "Block user" : "Unblock user"}
+                                                        className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-black transition-all disabled:opacity-50 ${user.isActive
+                                                                ? "border-rose-500/20 bg-rose-500/8 text-rose-400 hover:bg-rose-500/15"
+                                                                : "border-emerald-500/20 bg-emerald-500/8 text-emerald-400 hover:bg-emerald-500/15"
+                                                            }`}
+                                                    >
+                                                        {loading === user._id ? (
+                                                            <Loader2 size={10} className="animate-spin" />
+                                                        ) : user.isActive ? (
+                                                            <ShieldOff size={10} />
+                                                        ) : (
+                                                            <ShieldCheck size={10} />
+                                                        )}
+                                                        {user.isActive ? "Block" : "Unblock"}
+                                                    </button>
+                                                )}
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -437,7 +363,7 @@ export default function UserTable({ users: initialUsers }: Props) {
 
                     {/* ── Mobile cards ────────────────────────────────────── */}
                     <div className="space-y-3 md:hidden">
-                        {visible.map((user) => (
+                        {users.map((user) => (
                             <div
                                 key={user._id}
                                 className={`rounded-2xl border border-white/[0.06] bg-[#0f0f16] p-4 ${!user.isActive ? "opacity-50" : ""
@@ -450,13 +376,10 @@ export default function UserTable({ users: initialUsers }: Props) {
                                         <div className="flex flex-wrap items-center gap-1.5">
                                             <p className="font-bold text-white">{user.name}</p>
                                             <RoleBadge role={user.role} />
-                                            <CustomerBadge
-                                                isVip={user.isVip}
-                                                isRepeat={user.isRepeat}
-                                                ordersCount={user.ordersCount}
-                                            />
+                                            <CustomerBadge isVip={user.isVip} customerType={user.customerType} />
                                         </div>
                                         <p className="truncate text-[11px] text-stone-600">{user.email}</p>
+                                        <p className="text-[10.5px] text-stone-500">Last order: {lastOrderLabel(user.lastOrderAt)}</p>
                                     </div>
                                     {user.isActive ? (
                                         <span className="shrink-0 text-[10px] font-bold text-emerald-400">Active</span>
@@ -490,12 +413,18 @@ export default function UserTable({ users: initialUsers }: Props) {
                                 {/* Actions row */}
                                 <div className="mt-3 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
+                                        <Link
+                                            href={`/admin/users/${user._id}`}
+                                            className="flex items-center gap-1 rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-1.5 text-[10px] font-bold text-stone-200"
+                                        >
+                                            View
+                                        </Link>
                                         {user.phone && (
                                             <>
                                                 <button
                                                     onClick={() => handleCopyPhone(user.phone, user._id)}
                                                     aria-label="Copy phone number"
-                                                    className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5 text-[10px] font-bold text-stone-500 hover:text-stone-300"
+                                                    className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5 text-[10px] font-bold text-stone-300 hover:text-stone-100"
                                                 >
                                                     <Copy size={10} />
                                                     {copied === user._id ? "Copied!" : "Copy"}
@@ -535,10 +464,6 @@ export default function UserTable({ users: initialUsers }: Props) {
                         ))}
                     </div>
 
-                    {/* Count strip */}
-                    <p className="mt-4 text-right text-[11px] text-stone-700">
-                        {visible.length} of {users.length} customer{users.length !== 1 ? "s" : ""}
-                    </p>
                 </>
             )}
         </>

@@ -36,11 +36,11 @@
 import { connectDB }       from "@/lib/db";
 import Product              from "@/models/Product";
 import ProductDetail        from "@/components/products/ProductDetail";
-import Navbar               from "@/components/shared/Navbar";
 import Footer               from "@/components/shared/Footer";
 import { notFound }         from "next/navigation";
 import { cache }            from "react";
-import { serializeMongoDoc, serializeMongoDocs } from "@/lib/serialize";
+import { serializeMongoDoc } from "@/lib/serialize";
+import { getProductDetailRecommendations, recommendationTitle } from "@/lib/recommendations";
 import type { Metadata }    from "next";
 
 // ✅ FIX — No ISR. Every request hits the DB directly (still fast via connection pool).
@@ -67,7 +67,7 @@ const getProduct = cache(async (slug: string) => {
         // ✅ Only select fields needed by ProductDetail — excludes large unused fields
         const product = await Product
             .findOne({ slug })
-            .select("name slug description shortDescription price compareAtPrice category image stock isAvailable isFeatured rating tags ingredients")
+            .select("name slug description shortDescription price compareAtPrice category image stock isAvailable isFeatured rating reviewCount tags ingredients")
             .lean();
         if (!product) return null;
         return serializeMongoDoc(product);
@@ -77,30 +77,29 @@ const getProduct = cache(async (slug: string) => {
     }
 });
 
-// PERF PASS 2 — single query replacing the previous two identical-filter
-// queries (one for upsell, one for related). See file-header comment for
-// full rationale. Same UI-facing shapes/counts as before: 3 upsell items,
-// 4 related items.
-async function getUpsellAndRelatedProducts(category: string, excludeId: string) {
+// Pre-Phase 17 Phase 3 — replaced the plain same-category query with the
+// real recommendation engine (src/lib/recommendations.ts): real co-purchase
+// data first (from delivered order history, cached), same-category/tag
+// fallback otherwise. Still exactly ONE Product query (plus, at most, one
+// cheap ProductAffinity cache read) — same performance envelope as before,
+// just better-ranked and honestly titled. Same UI-facing split as before
+// (up to 3 "upsell" + up to 4 "related"), but both slices now come from one
+// ranked list instead of an arbitrary same-category scan, and the section
+// title reflects the REAL source (no fake "Frequently Bought Together"
+// label unless genuine co-purchase data backs it).
+async function getRecommendations(productId: string, category: string) {
     try {
         await connectDB();
-        const products = await Product.find({
-            category: { $regex: new RegExp(`^${category}$`, "i") },
-            _id: { $ne: excludeId },
-            isAvailable: true,
-        })
-            .select("name slug shortDescription price compareAtPrice category image rating stock isAvailable")
-            .limit(7) // 3 for upsell + 4 for related, fetched in one round trip
-            .lean();
-
-        const serialized = serializeMongoDocs(products);
+        const { source, products } = await getProductDetailRecommendations(productId, category);
 
         return {
-            upsellProducts: serialized.slice(0, 3),
-            relatedProducts: serialized.slice(3, 7),
+            upsellProducts: products.slice(0, 3),
+            relatedProducts: products.slice(3, 7),
+            upsellTitle: recommendationTitle(source, "detail"),
         };
-    } catch {
-        return { upsellProducts: [], relatedProducts: [] };
+    } catch (error) {
+        console.error("PRODUCT_RECOMMENDATIONS_ERROR", error);
+        return { upsellProducts: [], relatedProducts: [], upsellTitle: "You May Also Like" };
     }
 }
 
@@ -124,6 +123,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return {
         title,
         description,
+        // Phase 17.2 (F18): previously missing here — menu/page.tsx and
+        // loyalty/layout.tsx both already set this. Matches the same
+        // hardcoded production-origin convention used throughout (see
+        // sitemap.ts's BASE_URL and menu/page.tsx's own canonical).
+        alternates: { canonical: `https://www.foodknock.com/menu/${slug}` },
         openGraph: {
             title,
             description,
@@ -147,20 +151,62 @@ export default async function ProductPage({ params }: PageProps) {
 
     if (!product) notFound();
 
-    // PERF PASS 2 — one Mongo round trip instead of two (Promise.all of two
-    // identical-filter queries collapsed into a single query + in-memory slice).
-    const { upsellProducts, relatedProducts } = await getUpsellAndRelatedProducts(
-        product.category,
-        product._id
+    const { upsellProducts, relatedProducts, upsellTitle } = await getRecommendations(
+        product._id,
+        product.category
     );
+
+    // SEO fix: product detail pages had generateMetadata() (title/OG/
+    // Twitter/canonical) but no structured data at all. Built strictly
+    // from this same `product` record — no fabricated rating/review
+    // count/availability. `aggregateRating` is included ONLY when a real
+    // rating and a real review count both exist; omitted entirely
+    // otherwise (never a placeholder number).
+    const productJsonLd: Record<string, unknown> = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        name: product.name,
+        description: product.shortDescription ?? product.description ?? `${product.name} — available on FoodKnock.`,
+        image: product.image ? [product.image] : undefined,
+        url: `https://www.foodknock.com/menu/${slug}`,
+        category: product.category,
+        offers: {
+            "@type": "Offer",
+            priceCurrency: "INR",
+            price: product.price,
+            availability: product.isAvailable && product.stock > 0
+                ? "https://schema.org/InStock"
+                : "https://schema.org/OutOfStock",
+            url: `https://www.foodknock.com/menu/${slug}`,
+        },
+    };
+    if (typeof product.rating === "number" && product.rating > 0 && typeof product.reviewCount === "number" && product.reviewCount > 0) {
+        productJsonLd.aggregateRating = {
+            "@type": "AggregateRating",
+            ratingValue: product.rating,
+            reviewCount: product.reviewCount,
+        };
+    }
+
+    const breadcrumbJsonLd = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Menu", item: "https://www.foodknock.com/menu" },
+            { "@type": "ListItem", position: 2, name: product.category, item: `https://www.foodknock.com/menu?category=${encodeURIComponent(product.category)}` },
+            { "@type": "ListItem", position: 3, name: product.name, item: `https://www.foodknock.com/menu/${slug}` },
+        ],
+    };
 
     return (
         <>
-            <Navbar />
+            <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(productJsonLd) }} />
+            <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
             <ProductDetail
                 product={product}
                 upsellProducts={upsellProducts}
                 relatedProducts={relatedProducts}
+                upsellTitle={upsellTitle}
             />
             <Footer />
         </>

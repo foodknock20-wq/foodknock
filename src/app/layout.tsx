@@ -3,6 +3,7 @@
 
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { playfairDisplay } from "./fonts";
 import { Toaster } from "react-hot-toast";
 import { Suspense } from "react";
 import { cookies } from "next/headers";
@@ -25,6 +26,29 @@ export const viewport: Viewport = {
 };
 
 // ─── JSON-LD (defined outside component — no re-creation on each render) ───
+//
+// SEO fix: `geo` (lat/lng) and `openingHoursSpecification` were removed
+// from this block. Both made specific, factual claims with no verified
+// source behind them:
+//   - `geo: {latitude:"27.5", longitude:"75.4"}` — suspiciously round
+//     numbers for real GPS coordinates, and directly contradicted by
+//     src/models/DeliverySettings.ts's own documented state: the kitchen's
+//     real latitude/longitude default to `null` and were confirmed (Phase
+//     17.2 audit) to NOT be configured in production. Presenting an
+//     invented coordinate pair to Google as structured data risks an
+//     incorrect map pin — a real business-facing error, not just a
+//     cosmetic one.
+//   - `openingHoursSpecification` (09:00–22:00 every day) — no model in
+//     this codebase stores a fixed daily schedule; `src/models/Shop.ts`'s
+//     open/closed state is a manual admin toggle, not a schedule. This
+//     made an unverifiable "always these hours" claim.
+// The street address below is NOT part of this fix and was left
+// unchanged — it is independently corroborated as the real business
+// address in src/app/(main)/terms/page.tsx's legal contact section, not
+// invented for this structured-data block.
+// Re-add `geo`/`openingHoursSpecification` only once real kitchen
+// coordinates are configured in DeliverySettings and real operating hours
+// are confirmed by the business owner — see FOODKNOCK_SEO_REPORT.md.
 const jsonLd = {
     "@context": "https://schema.org",
     "@type": "FoodEstablishment",
@@ -46,20 +70,37 @@ const jsonLd = {
         postalCode: "332403",
         addressCountry: "IN",
     },
-    geo: {
-        "@type": "GeoCoordinates",
-        latitude: "27.5",
-        longitude: "75.4",
-    },
-    openingHoursSpecification: [
-        {
-            "@type": "OpeningHoursSpecification",
-            dayOfWeek: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
-            opens: "09:00",
-            closes: "22:00",
-        },
-    ],
     hasMap: "https://maps.google.com/?q=Ramgarh+Bas+Stand+Circle+Danta+Sikar+Rajasthan",
+};
+
+// New — Organization + WebSite schema, previously entirely absent. Uses
+// only real, already-public, consistently-used facts (same email/address
+// as above and as the Terms/Contact pages; same founder names as
+// src/lib/founderData.ts). No ratings, review counts, or awards —  none
+// exist to report truthfully.
+const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "FoodKnock",
+    url: BASE_URL,
+    logo: `${BASE_URL}/icon-512.png`,
+    email: "foodknock20@gmail.com",
+    foundingLocation: "Danta, Sikar, Rajasthan, India",
+    founders: [
+        { "@type": "Person", name: "Manish Kumar" },
+        { "@type": "Person", name: "Gaurav Kumawat" },
+    ],
+    sameAs: [
+        "https://instagram.com/learnwith.manish",
+        "https://www.linkedin.com/in/gauravkumawatkirodiwal",
+    ],
+};
+
+const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "FoodKnock",
+    url: BASE_URL,
 };
 
 // ─── Metadata ──────────────────────────────────────────────────────────────
@@ -176,12 +217,20 @@ export default async function RootLayout({
     const authed = await isAuthenticated();
 
     return (
-        <html lang="en">
+        <html lang="en" className={playfairDisplay.variable}>
             <body className="bg-[#FFFBF5] text-stone-800 antialiased">
                 {/* JSON-LD structured data — Next.js moves this into <head> automatically */}
                 <script
                     type="application/ld+json"
                     dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+                />
+                <script
+                    type="application/ld+json"
+                    dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+                />
+                <script
+                    type="application/ld+json"
+                    dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
                 />
 
                 {/* Premium startup splash — visible by default (identical on
@@ -194,11 +243,20 @@ export default async function RootLayout({
                 <SplashScreen />
 
                 {/*
-                  pb-[calc(62px+env(safe-area-inset-bottom,0px))] ensures page content
-                  never hides behind the fixed mobile bottom nav.
+                  GLOBAL FOOTER/LAYOUT FIX — this used to be a hardcoded
+                  `62px`, 14px short of BottomNavigation's real total
+                  footprint (10px bottom-inset + 66px height = 76px — see
+                  globals.css's --fk-bottom-nav-clearance header for the
+                  full trace). That shortfall let BottomNavigation's own
+                  top sliver sit over the last ~14px of whatever content
+                  (almost always Footer's bottom legal row) a page reserved
+                  only 62px to clear. Now reads the single corrected,
+                  derived value instead of repeating a literal pixel number
+                  here — ensures page content never hides behind the fixed
+                  mobile bottom nav.
                   lg:pb-0 removes the padding on desktop where bottom nav is hidden.
                 */}
-                <div className="pb-[calc(62px+env(safe-area-inset-bottom,0px))] lg:pb-0">
+                <div className="pb-[calc(var(--fk-bottom-nav-clearance)+env(safe-area-inset-bottom,0px))] lg:pb-0">
                     {children}
                 </div>
 

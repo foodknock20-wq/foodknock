@@ -43,11 +43,16 @@ export async function GET(req: NextRequest) {
         // ── Fetch this user's orders only ──────────────────────────────────
         await connectDB();
 
+        // PHASE 6: bounded — a long-tenured customer's full order history
+        // had no cap, so this grows unboundedly over the account's
+        // lifetime. 100 most-recent orders comfortably covers "my orders"
+        // UI usage; no visible change for any customer under that count.
         const orders = await Order.find({ user: decoded.userId })
             .sort({ createdAt: -1 })
             .select(
                 "_id orderId customerName phone address landmark orderType items totalAmount status note createdAt"
             )
+            .limit(100)
             .lean();
 
         return NextResponse.json({ success: true, orders });

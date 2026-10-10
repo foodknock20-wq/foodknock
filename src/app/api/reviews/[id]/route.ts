@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
 import Review from "@/models/Review";
+import { requireAdmin } from "@/lib/apiAuth";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -11,8 +12,18 @@ type RouteContext = {
 
 // ── PATCH /api/reviews/[id] ───────────────────────────────────────────────
 // Supports: { isApproved: boolean }
+// PHASE 3: this is the admin moderation action (approve/hide a public
+// review) and previously had NO authorization — any unauthenticated request
+// could approve or hide any review. Admin-only now, server-verified.
+// (Review documents have no author/ownership field in this schema — there
+// is no "owner" concept to check here, only admin moderation.)
 export async function PATCH(req: NextRequest, context: RouteContext) {
   try {
+    const admin = await requireAdmin(req);
+    if (!admin) {
+      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 403 });
+    }
+
     await connectDB();
 
     const { id } = await context.params;
@@ -57,8 +68,15 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
 }
 
 // ── DELETE /api/reviews/[id] ──────────────────────────────────────────────
-export async function DELETE(_req: NextRequest, context: RouteContext) {
+// PHASE 3: previously had NO authorization — any unauthenticated request
+// could permanently delete any review. Admin-only now, server-verified.
+export async function DELETE(req: NextRequest, context: RouteContext) {
   try {
+    const admin = await requireAdmin(req);
+    if (!admin) {
+      return NextResponse.json({ success: false, message: "Admin access required" }, { status: 403 });
+    }
+
     await connectDB();
 
     const { id } = await context.params;

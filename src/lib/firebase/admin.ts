@@ -125,3 +125,41 @@ export function isFcmTokenDead(code: string | undefined): boolean {
         code === "messaging/invalid-argument"
     );
 }
+
+// VERCEL HOBBY SUSTAINABILITY AUDIT — this is a DIFFERENT failure class
+// from isFcmTokenDead() above, and the two must never be conflated.
+// isFcmTokenDead() codes mean "this one token is permanently invalid" —
+// correctly handled already by deactivating just that subscription.
+// These codes instead mean the SERVER's own credentials/permissions are
+// rejected by Firebase — a project/service-account/IAM problem, not a
+// per-token one. A send failing with one of these will fail IDENTICALLY
+// for every other fcmToken subscriber in the same broadcast (same
+// credentials, same call), so "permission-denied"-class errors seen
+// repeatedly in production logs are evidence of a configuration issue to
+// verify in the Firebase/GCP console (Cloud Messaging API enabled; the
+// service account has the "Firebase Cloud Messaging API Admin" role) —
+// NOT evidence that subscriber tokens are going bad, and NOT something a
+// code change here can actually repair. Exported so webPushProvider.ts
+// can tell the two apart and log ONE clear, aggregated warning per
+// invocation instead of repeating the same per-token "FCM send error" N
+// times across a broadcast — real wasted log volume/CPU on an error this
+// function already knows, after the first occurrence, cannot be anything
+// but systemic for the rest of that same invocation.
+export function isFcmAuthError(code: string | undefined, message: string | undefined): boolean {
+    if (
+        code === "messaging/authentication-error" ||
+        code === "messaging/invalid-credential" ||
+        code === "messaging/third-party-auth-error" ||
+        code === "messaging/insufficient-device-storage"
+    ) {
+        return true;
+    }
+    // The Admin SDK doesn't always normalize a rejected-credential/IAM
+    // response into one of the `messaging/*` codes above — it can also
+    // surface the underlying googleapis/gRPC error as a bare
+    // "PERMISSION_DENIED" code or message, which is what this codebase's
+    // own production logs were observed to contain (the exact phrase this
+    // audit was asked to investigate, not assumed).
+    const text = `${code ?? ""} ${message ?? ""}`.toLowerCase();
+    return text.includes("permission_denied") || text.includes("permission denied");
+}

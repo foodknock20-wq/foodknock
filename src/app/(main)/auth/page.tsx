@@ -2,35 +2,42 @@ export const dynamic = "force-dynamic";
 
 // src/app/(main)/auth/page.tsx
 // Premium light warm food-brand auth page for FoodKnock — split layout with visual story
-
+//
+// FoodKnock Phase 6 — the "Social proof" + "Mini testimonials" sections
+// here used to be entirely fabricated (three hardcoded named people with
+// invented quotes, plus a flat "4.9/5 · 2,450+ customers" claim), then
+// later replaced with a real `Review.find()` query.
+//
+// Responsive + content audit (this pass) — removed the real-data query
+// entirely anyway, per an explicit instruction for this specific page:
+// auth should not fetch reviews/products/stats just for decoration, even
+// when the data is genuine — it's an unnecessary DB round-trip on the
+// highest-traffic entry point for a page whose job is authentication, not
+// social proof. Also replaced two BRAND_BENEFITS claims that were never
+// actually substantiated by anything in the backend ("Order in under 60
+// seconds" — no speed guarantee exists anywhere in the order pipeline;
+// "birthday surprises" / "early access to new items" — no such feature
+// exists) with claims that map to real, already-shipped features audited
+// elsewhere in this app: Reorder (src/components/orders/ReorderButton.tsx)
+// and live order tracking (/track-order, OrderTimeline).
 import AuthTabs from "@/components/auth/AuthTabs";
 import Link from "next/link";
-import { Star, Zap, Clock, ShieldCheck, ArrowLeft, Gift, Flame } from "lucide-react";
+import { Repeat2, Clock, ShieldCheck, ArrowLeft } from "lucide-react";
 
 const BRAND_BENEFITS = [
     {
-        icon: Zap,
-        title: "Order in under 60 seconds",
-        sub: "Cart saves, details remembered — ultra-fast checkout every time",
+        icon: Repeat2,
+        title: "Reorder in one tap",
+        sub: "Your past orders are saved — reorder a favourite instantly.",
         bg: "bg-amber-50",
         border: "border-amber-200",
         iconColor: "text-amber-600",
         iconBg: "bg-amber-100",
-        emoji: "⚡",
-    },
-    {
-        icon: Gift,
-        title: "Exclusive member deals",
-        sub: "Weekly offers, birthday surprises & early access to new items",
-        bg: "bg-orange-50",
-        border: "border-orange-200",
-        iconColor: "text-orange-600",
-        iconBg: "bg-orange-100",
-        emoji: "🎁",
+        emoji: "🔁",
     },
     {
         icon: Clock,
-        title: "Fresh food in 25 minutes",
+        title: "Fresh food in 30–45 mins",
         sub: "Hot, made-to-order delivery right to your doorstep",
         bg: "bg-red-50",
         border: "border-red-100",
@@ -50,17 +57,27 @@ const BRAND_BENEFITS = [
     },
 ];
 
-const TESTIMONIALS = [
-    { name: "Priya S.",  text: "Best cold coffee & fastest delivery!",       avatar: "P", grad: "from-amber-400 to-orange-500" },
-    { name: "Rahul M.",  text: "Smash burger every weekend, no complaints.",  avatar: "R", grad: "from-orange-400 to-red-500"   },
-    { name: "Ananya K.", text: "Love the member deals every week 🔥",         avatar: "A", grad: "from-yellow-400 to-amber-500" },
-];
-
-type AuthPageProps = { searchParams?: Promise<{ redirect?: string }> };
+type AuthPageProps = { searchParams?: Promise<{ redirect?: string; mode?: string; ref?: string }> };
 
 export default async function AuthPage({ searchParams }: AuthPageProps) {
     const params     = await searchParams;
     const redirectTo = params?.redirect || "/";
+    // AUTH 2.0 — smart entry routing. Explicit URL intent always wins
+    // (checked here, server-side, deterministic). When NO explicit mode
+    // is given, the SSR-safe default is Create Account — the actual
+    // "has this device authenticated before?" check can only happen
+    // client-side (it reads localStorage), so it's deferred to AuthTabs's
+    // one-time layout-effect correction (see that file) rather than
+    // guessed here. `hasExplicitMode` tells AuthTabs whether it's allowed
+    // to apply that correction at all.
+    const hasExplicitMode = params?.mode === "login" || params?.mode === "signup";
+    const initialMode: "login" | "register" = params?.mode === "login" ? "login" : "register";
+    // REFERRAL EXPERIENCE 2.0: /auth?ref=CODE pre-fills the signup form's
+    // referral field (display hygiene only — trimmed/uppercased/length-
+    // capped to the same 8-char shape referral codes are generated in;
+    // the server re-validates whatever is actually submitted regardless
+    // of this value, see register/route.ts's resolveReferrer() call).
+    const initialReferralCode = (params?.ref ?? "").trim().toUpperCase().slice(0, 8);
 
     return (
         <div className="relative min-h-screen overflow-hidden bg-[#FFFBF5]">
@@ -92,12 +109,24 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
                 aria-hidden="true"
             />
 
-            <div className="relative mx-auto grid min-h-screen max-w-7xl px-4 py-10 md:grid-cols-[1fr_1fr] md:items-center md:gap-12 md:px-10 lg:gap-20 lg:py-14">
+            {/* Responsive composition fix — ROOT CAUSE of the "narrow auth
+                sidebar" bug: this grid previously switched to 2 columns at
+                `md:` (768px) while the wider gap/padding only applied from
+                `lg:` (1024px) up. In the 768-1023px gap (tablet + small
+                laptop) that meant: 2 columns already active, but with the
+                NARROWER md: gap/padding — at 768px each column computed to
+                only ~320px, well under the auth card's own 440px target,
+                which is exactly the squeezed "sidebar" that was reported.
+                Fixed by moving the 2-column switch itself to `lg:` (1024px)
+                — tablet/small-laptop now gets the full single-column
+                composition (card centered, free to use its real max-width)
+                instead of a cramped split that never had enough room. */}
+            <div className="relative mx-auto grid min-h-screen max-w-7xl px-4 py-10 lg:grid-cols-[1.08fr_1fr] lg:items-center lg:gap-10 lg:px-12 lg:py-14 xl:gap-16 xl:px-16">
 
                 {/* ════════════════════════════════════════════
-                    LEFT — Visual story (desktop only)
+                    LEFT — Visual story (desktop/laptop only, lg:+)
                 ════════════════════════════════════════════ */}
-                <div className="hidden flex-col justify-center md:flex">
+                <div className="hidden flex-col justify-center lg:flex">
 
                     {/* Back link */}
                     <Link
@@ -134,7 +163,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
                         </span>
                     </h1>
                     <p className="mt-5 max-w-[420px] text-[15px] leading-relaxed text-stone-500">
-                        Sign in to unlock faster ordering, saved addresses, exclusive member deals, and a seamless checkout experience.
+                        Join FoodKnock to save your addresses, reorder favourites in one tap, and check out faster every time.
                     </p>
 
                     {/* Benefit cards */}
@@ -156,48 +185,6 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
                         ))}
                     </div>
 
-                    {/* Social proof */}
-                    <div className="mt-7 flex items-center gap-4 rounded-2xl border border-amber-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm">
-                        <div className="flex -space-x-2.5">
-                            {TESTIMONIALS.map(({ avatar, grad }) => (
-                                <div
-                                    key={avatar}
-                                    className={`flex h-10 w-10 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br ${grad} text-[11px] font-black text-white shadow`}
-                                >
-                                    {avatar}
-                                </div>
-                            ))}
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-1.5">
-                                <div className="flex gap-0.5">
-                                    {[1,2,3,4,5].map((i) => <Star key={i} size={12} className="fill-amber-400 text-amber-400" />)}
-                                </div>
-                                <span className="text-xs font-black text-stone-700">4.9 / 5</span>
-                            </div>
-                            <p className="mt-0.5 text-[11px] text-stone-500">
-                                Loved by <span className="font-black text-orange-600">2,450+</span> customers in Sikar & Danta
-                            </p>
-                        </div>
-                    </div>
-
-                    {/* Mini testimonials */}
-                    <div className="mt-3 flex flex-col gap-2">
-                        {TESTIMONIALS.map(({ name, text, avatar, grad }) => (
-                            <div key={name} className="flex items-center gap-3 rounded-xl border border-stone-100 bg-white/80 px-4 py-3 shadow-sm backdrop-blur-sm">
-                                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br ${grad} text-[10px] font-black text-white shadow-sm`}>
-                                    {avatar}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-xs font-bold text-stone-700">"{text}"</p>
-                                    <p className="text-[10px] text-stone-400">— {name}</p>
-                                </div>
-                                <div className="flex gap-0.5 shrink-0">
-                                    {[1,2,3,4,5].map((i) => <Star key={i} size={9} className="fill-amber-400 text-amber-400" />)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
                 </div>
 
                 {/* ════════════════════════════════════════════
@@ -205,16 +192,23 @@ export default async function AuthPage({ searchParams }: AuthPageProps) {
                 ════════════════════════════════════════════ */}
                 <div className="flex w-full flex-col items-center justify-center">
 
-                    {/* Mobile back link */}
+                    {/* Back link — shown whenever the left visual story is
+                        hidden (everything below lg:, i.e. mobile/tablet/
+                        small-laptop), matching the grid's own breakpoint. */}
                     <Link
                         href="/"
-                        className="group mb-6 inline-flex items-center gap-1.5 text-sm font-bold text-stone-500 transition-colors hover:text-orange-600 md:hidden"
+                        className="group mb-6 inline-flex items-center gap-1.5 text-sm font-bold text-stone-500 transition-colors hover:text-orange-600 lg:hidden"
                     >
                         <ArrowLeft size={13} />
                         Back to FoodKnock
                     </Link>
 
-                    <AuthTabs redirectTo={redirectTo} />
+                    <AuthTabs
+                        redirectTo={redirectTo}
+                        initialMode={initialMode}
+                        hasExplicitMode={hasExplicitMode}
+                        initialReferralCode={initialReferralCode}
+                    />
 
                     <p className="mt-5 text-center text-[11px] text-stone-400">
                         Need help?{" "}

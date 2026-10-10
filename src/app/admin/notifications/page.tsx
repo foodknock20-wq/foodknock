@@ -10,14 +10,15 @@
 import { useState, useRef } from "react";
 import { toast } from "react-hot-toast";
 import {
-    Bell, Send, Radio, Link2, Type, MessageSquare, Image as ImageIcon,
-    Tag, Flame, Plus, X, Loader2, Upload,
+    Bell, Send, Radio, Type, MessageSquare, Image as ImageIcon,
+    Tag, Flame, Plus, X, Loader2, Upload, Users, MapPin,
 } from "lucide-react";
 import NotificationPreview from "@/components/admin/notifications/NotificationPreview";
+import AdminPageHeader from "@/components/admin/shared/AdminPageHeader";
+import CustomerSelector, { type SelectedCustomer } from "@/components/admin/notifications/CustomerSelector";
+import DestinationPicker from "@/components/admin/notifications/DestinationPicker";
 import { CATEGORY_DISPLAY } from "@/lib/notifications/categoryDisplay";
 import type { NotificationCategory, NotificationPriority } from "@/lib/notifications/types";
-
-const URL_PRESETS = ["/menu", "/my-orders", "/loyalty", "/review-rewards"];
 
 const CATEGORY_OPTIONS = Object.keys(CATEGORY_DISPLAY) as NotificationCategory[];
 const PRIORITY_OPTIONS: NotificationPriority[] = ["low", "normal", "high", "urgent"];
@@ -31,6 +32,13 @@ export default function AdminNotificationsPage() {
     const [url, setUrl]     = useState("/menu");
     const [state, setState] = useState<SendState>("idle");
     const [lastResult, setLastResult] = useState<string | null>(null);
+
+    // ── Recipient (Notification System 2.0, Phase 11/12) ──────────────────
+    // null = broadcast to every active subscriber (original, unchanged
+    // behavior). A selected customer switches Send to mode:"user" against
+    // that one customer only — same engine call, same preference gate,
+    // same delivery logging as every other mode.
+    const [recipient, setRecipient] = useState<SelectedCustomer | null>(null);
 
     // ── Rich payload fields (Feature 3, Part 10) ──────────────────────────
     const [imageUrl, setImageUrl]   = useState("");
@@ -142,9 +150,11 @@ export default function AdminNotificationsPage() {
 
     async function handleBroadcast() {
         if (!valid || state !== "idle") return;
-        if (!window.confirm("Send this notification to ALL active subscribers? This cannot be undone.")) {
-            return;
-        }
+
+        const confirmMsg = recipient
+            ? `Send this notification to ${recipient.name}?`
+            : "Send this notification to ALL active subscribers? This cannot be undone.";
+        if (!window.confirm(confirmMsg)) return;
 
         setState("sendingBroadcast");
         setLastResult(null);
@@ -152,16 +162,35 @@ export default function AdminNotificationsPage() {
             const res = await fetch("/api/admin/notifications/broadcast", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ mode: "broadcast", title, body, url, ...buildRichPayload() }),
+                body: JSON.stringify(
+                    recipient
+                        ? { mode: "user", targetUserId: recipient.id, title, body, url, ...buildRichPayload() }
+                        : { mode: "broadcast", title, body, url, ...buildRichPayload() }
+                ),
             });
             const data = await res.json();
-            if (data.success) {
+            if (!data.success) {
+                toast.error(data.message || "Failed to send notification");
+                return;
+            }
+
+            // Phase 35 — never report "sent" when nothing was actually
+            // delivery-capable. A targeted customer with no active push
+            // subscription gets an honest, distinct message instead of a
+            // false "sent successfully."
+            if (recipient) {
+                if (data.sent > 0) {
+                    toast.success(`Notification sent to ${recipient.name}`);
+                    setLastResult(`Sent to ${recipient.name} — ${data.sent} device${data.sent !== 1 ? "s" : ""} reached, ${data.failed} failed`);
+                } else {
+                    toast.error(`Notification saved, but ${recipient.name} currently has no active push subscription.`);
+                    setLastResult(`Not delivered — ${recipient.name} has no active push subscription (or has this category disabled).`);
+                }
+            } else {
                 toast.success(`Broadcast sent to ${data.sent} subscriber${data.sent !== 1 ? "s" : ""}`);
                 setLastResult(
                     `Broadcast complete — ${data.sent} sent, ${data.failed} failed, ${data.deactivated} deactivated`
                 );
-            } else {
-                toast.error(data.message || "Failed to send broadcast");
             }
         } catch {
             toast.error("Network error — try again");
@@ -172,26 +201,33 @@ export default function AdminNotificationsPage() {
 
     return (
         <div className="space-y-6">
-            {/* ── Page header ── */}
-            <div>
-                <div className="mb-1 inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/8 px-3 py-1">
-                    <Bell size={11} className="text-amber-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-400">
-                        Notifications
-                    </span>
-                </div>
-                <h1 className="font-serif text-2xl font-bold text-white md:text-3xl">
-                    Notification Studio
-                </h1>
-                <p className="mt-1 text-sm text-stone-600">
-                    Compose a rich push notification, preview it, then test or broadcast.
-                </p>
-            </div>
+            <AdminPageHeader
+                icon={Bell}
+                title="Notifications"
+                description="Compose a rich push notification, preview it, then test or broadcast"
+            />
 
             <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
                 {/* ── Compose card ── */}
                 <div className="rounded-2xl border border-white/[0.06] bg-[#0d0d14] p-5">
                     <div className="space-y-4">
+                        {/* Recipient */}
+                        <div>
+                            <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-600">
+                                <Users size={11} /> Recipient
+                            </label>
+                            <CustomerSelector
+                                selected={recipient}
+                                onSelect={setRecipient}
+                                onClear={() => setRecipient(null)}
+                            />
+                            {!recipient && (
+                                <p className="mt-1.5 text-[11px] text-stone-600">
+                                    No customer selected — Send will broadcast to all active subscribers.
+                                </p>
+                            )}
+                        </div>
+
                         {/* Title */}
                         <div>
                             <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-600">
@@ -222,33 +258,12 @@ export default function AdminNotificationsPage() {
                             />
                         </div>
 
-                        {/* Deep link URL */}
+                        {/* Destination — structured, internally generated; no free-typed URLs */}
                         <div>
                             <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-stone-600">
-                                <Link2 size={11} /> Deep Link URL
+                                <MapPin size={11} /> Destination
                             </label>
-                            <input
-                                type="text"
-                                value={url}
-                                onChange={(e) => setUrl(e.target.value)}
-                                placeholder="/menu"
-                                className="w-full rounded-xl border border-white/[0.08] bg-[#151520] px-3.5 py-2.5 text-[13px] text-stone-200 outline-none placeholder:text-stone-700 focus:border-amber-500/40"
-                            />
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                                {URL_PRESETS.map((preset) => (
-                                    <button
-                                        key={preset}
-                                        onClick={() => setUrl(preset)}
-                                        className={`rounded-lg px-2.5 py-1 text-[10px] font-bold transition-all duration-150 ${
-                                            url === preset
-                                                ? "border border-amber-500/35 bg-amber-500/15 text-amber-400"
-                                                : "border border-white/[0.06] bg-white/[0.02] text-stone-500 hover:border-white/10 hover:text-stone-300"
-                                        }`}
-                                    >
-                                        {preset}
-                                    </button>
-                                ))}
-                            </div>
+                            <DestinationPicker url={url} onChange={setUrl} />
                         </div>
 
                         {/* Image upload */}
@@ -375,7 +390,7 @@ export default function AdminNotificationsPage() {
                                         />
                                         <button
                                             onClick={() => removeCtaButton(cta.id)}
-                                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-stone-500 hover:text-rose-400"
+                                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-white/[0.08] text-stone-300 hover:text-rose-400"
                                         >
                                             <X size={14} />
                                         </button>
@@ -407,10 +422,12 @@ export default function AdminNotificationsPage() {
                         >
                             {state === "sendingBroadcast" ? (
                                 <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-orange-400 border-t-transparent" />
+                            ) : recipient ? (
+                                <Send size={13} />
                             ) : (
                                 <Radio size={13} />
                             )}
-                            Broadcast to All Subscribers
+                            {recipient ? `Send to ${recipient.name}` : "Broadcast to All Subscribers"}
                         </button>
                     </div>
 

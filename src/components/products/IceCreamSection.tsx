@@ -13,10 +13,9 @@
 
 import { useRef, useMemo, useCallback, memo } from "react";
 import { ChevronLeft, ChevronRight, Sparkles } from "lucide-react";
-import { useCartStore } from "@/store/cartStore";
-import { toast } from "react-hot-toast";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -45,7 +44,7 @@ const ChillerCard = memo(function ChillerCard({
     product: Product;
     index: number;
 }) {
-    const addItem = useCartStore(s => s.addItem);
+    const { handleAdd: addToCart } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
 
     // PERF: cheap arithmetic, no memo needed
@@ -61,20 +60,13 @@ const ChillerCard = memo(function ChillerCard({
 
     const handleAdd = useCallback((e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
-        if (unavailable) return;
-        addItem({
-            _id: product._id, name: product.name, price: product.price,
-            image: product.image, quantity: 1, stock: product.stock, category: product.category,
-        });
-        toast.success(`${product.name} added! ${badge.emoji}`, {
-            style: { background: "#fdf4ff", color: "#581c87", border: "1px solid #e9d5ff", borderRadius: "14px" },
-        });
-    }, [addItem, product, unavailable, badge.emoji]);
+        addToCart(product, `${product.name} added! ${badge.emoji}`);
+    }, [addToCart, product, badge.emoji]);
 
     return (
         <Link
             href={`/menu/${product.slug}`}
-            className={`group flex flex-col overflow-hidden rounded-2xl bg-white transition-all duration-300 ${unavailable ? "opacity-65" : "hover:-translate-y-1 hover:shadow-xl hover:shadow-purple-200/60"
+            className={`group flex flex-col overflow-hidden rounded-2xl bg-fk-surface-elevated transition-all duration-300 ${unavailable ? "opacity-65" : "hover:-translate-y-1 hover:shadow-xl hover:shadow-purple-200/60"
                 }`}
             style={{
                 minWidth: 200, maxWidth: 220,
@@ -114,8 +106,8 @@ const ChillerCard = memo(function ChillerCard({
                 )}
 
                 {unavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/30 backdrop-blur-[2px] pointer-events-none">
-                        <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-stone-500">
+                    <div className="absolute inset-0 flex items-center justify-center bg-fk-surface-elevated/30 backdrop-blur-[2px] pointer-events-none">
+                        <span className="rounded-full bg-fk-surface-elevated/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-fk-text-secondary">
                             Unavailable
                         </span>
                     </div>
@@ -123,10 +115,10 @@ const ChillerCard = memo(function ChillerCard({
 
                 {/* Price pill */}
                 <div className="absolute bottom-2.5 right-2.5 pointer-events-none">
-                    <div className="flex items-baseline gap-1 rounded-xl bg-white/95 px-2.5 py-1 shadow backdrop-blur-sm">
+                    <div className="flex items-baseline gap-1 rounded-xl bg-fk-surface-elevated/95 px-2.5 py-1 shadow backdrop-blur-sm">
                         <span className="text-[15px] font-black text-purple-600">₹{product.price}</span>
                         {product.compareAtPrice && product.compareAtPrice > product.price && (
-                            <span className="text-[10px] text-stone-400 line-through">₹{product.compareAtPrice}</span>
+                            <span className="text-[10px] text-fk-text-tertiary line-through">₹{product.compareAtPrice}</span>
                         )}
                     </div>
                 </div>
@@ -135,11 +127,11 @@ const ChillerCard = memo(function ChillerCard({
             {/* Content */}
             <div className="flex flex-1 flex-col p-3.5">
                 <h3
-                    className="line-clamp-1 text-[14px] font-black leading-snug text-stone-900"
+                    className="line-clamp-1 text-[14px] font-black leading-snug text-fk-text"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                     {product.name}
                 </h3>
-                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-stone-400">
+                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fk-text-tertiary">
                     {product.shortDescription || product.description}
                 </p>
                 <button
@@ -153,7 +145,7 @@ const ChillerCard = memo(function ChillerCard({
                         } : {}),
                     }}
                     className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12px] font-black transition-all duration-200 ${unavailable
-                            ? "cursor-not-allowed bg-stone-100 text-stone-400"
+                            ? "cursor-not-allowed bg-fk-surface-interactive text-fk-text-tertiary"
                             : "text-white shadow-md hover:brightness-110 active:scale-[0.97]"
                         }`}>
                     {unavailable ? "Unavailable" : `Add ${badge.emoji}`}
@@ -220,19 +212,19 @@ const IceCreamSection = memo(function IceCreamSection(props: IceCreamSectionProp
                             </span>
                         </div>
                         <h2
-                            className="text-2xl font-black text-stone-900 md:text-3xl"
+                            className="text-2xl font-black text-fk-text md:text-3xl"
                             style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                             ❄️ Summer Chillers
                         </h2>
-                        <p className="mt-0.5 text-[12px] text-stone-400">Creamy tubs, chilled shakes &amp; premium coolers for hot days</p>
+                        <p className="mt-0.5 text-[12px] text-fk-text-tertiary">Creamy tubs, chilled shakes &amp; premium coolers for hot days</p>
                     </div>
                     <div className="hidden items-center gap-2 md:flex">
                         <button onClick={scrollLeft}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-purple-200 bg-white text-stone-400 shadow-sm transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-500">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-purple-200 bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-500">
                             <ChevronLeft size={15} strokeWidth={2.5} />
                         </button>
                         <button onClick={scrollRight}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-purple-200 bg-white text-stone-400 shadow-sm transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-500">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-purple-200 bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-purple-400 hover:bg-purple-50 hover:text-purple-500">
                             <ChevronRight size={15} strokeWidth={2.5} />
                         </button>
                     </div>

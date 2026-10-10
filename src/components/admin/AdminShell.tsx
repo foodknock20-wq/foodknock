@@ -4,15 +4,39 @@
 // Admin UI shell — FoodKnock
 // Extracted from layout.tsx so layout can be a server component (auth guard).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminTopbar  from "@/components/admin/AdminTopbar";
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {
     const [sidebarOpen, setSidebarOpen] = useState(false);
 
+    // Phase 15B: lock background scroll while the mobile drawer is open —
+    // without this, the page content underneath the backdrop could still
+    // scroll, which reads as a broken/leaky overlay on touch devices.
+    useEffect(() => {
+        if (!sidebarOpen) return;
+        const original = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = original; };
+    }, [sidebarOpen]);
+
     return (
-        <div className="flex h-screen overflow-hidden bg-[#09090f]">
+        // Phase 15E.5: `fixed inset-0` instead of `h-screen` (static 100vh).
+        // ROOT CAUSE of the bottom cream/white gap: the root layout
+        // (src/app/layout.tsx) wraps EVERY route — including /admin — in a
+        // `pb-[62px+safe-area] lg:pb-0` div reserved for the customer-only
+        // mobile BottomNav (which only ever mounts via <Navbar> on (main)
+        // pages — AdminShell never renders it). On mobile widths that left
+        // ~62px+ of real, scrollable body height below this shell, exposing
+        // <body>'s cream (#FFFBF5) background. `h-screen` also only tracks a
+        // STATIC 100vh, not the mobile browser's dynamically resizing
+        // toolbar. `fixed inset-0` removes this element from the body's
+        // normal flow entirely (so that inherited padding can no longer
+        // extend body's scrollable height) and is continuously resized by
+        // the browser against the live visual viewport — no vh/dvh unit
+        // involved, so mobile toolbar show/hide can't create a gap either.
+        <div className="fixed inset-0 flex overflow-hidden bg-[#09090f]">
 
             {/* Sidebar */}
             <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />

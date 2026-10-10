@@ -8,27 +8,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB }  from "@/lib/db";
 import User           from "@/models/User";
 import Order          from "@/models/Order";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/apiAuth";
 
 export const dynamic = "force-dynamic";
 
-// ─── Admin auth guard ─────────────────────────────────────────────────────
-function extractToken(req: NextRequest): string | null {
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const match        = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
-    return match ? decodeURIComponent(match[1]) : null;
-}
-
-function isAdmin(req: NextRequest): boolean {
-    const token = extractToken(req);
-    if (!token) return false;
-    try {
-        const decoded = verifyToken(token) as { role?: string };
-        return decoded?.role === "admin";
-    } catch {
-        return false;
-    }
-}
+// Phase 17.2: previously a hand-rolled, JWT-claim-only isAdmin() check —
+// see src/app/api/orders/route.ts's sibling comment for the exact risk
+// this closes. Now uses the centralized, DB-verified requireAdmin().
 
 function normalizePhone(phone: string) {
     return String(phone || "").replace(/\D/g, "").slice(-10);
@@ -36,7 +22,8 @@ function normalizePhone(phone: string) {
 
 export async function GET(req: NextRequest) {
     // ✅ Auth check — this endpoint exposes PII (email, phone, address)
-    if (!isAdmin(req)) {
+    const admin = await requireAdmin(req);
+    if (!admin) {
         return NextResponse.json(
             { success: false, message: "Unauthorised" },
             { status: 401 }
@@ -59,13 +46,28 @@ export async function GET(req: NextRequest) {
             ];
         }
 
+        // PHASE 9: the flat 500-item cap (Phase 6) silently truncated the
+        // unfiltered list once the user base passed 500 — real users at
+        // the tail became invisible to admin search/browsing with no
+        // indication anything was missing. Real pagination (page/limit +
+        // total count) replaces the hard cap; default page size matches
+        // the old cap's order of magnitude so nothing changes for an
+        // admin who never passes ?page=.
+        const page  = Math.max(1, parseInt(searchParams.get("page")  ?? "1", 10) || 1);
+        const limit = Math.min(500, Math.max(1, parseInt(searchParams.get("limit") ?? "500", 10) || 500));
+        const skip  = (page - 1) * limit;
+
+        const total = await User.countDocuments(query);
+
         const users = await User.find(query)
             .sort({ createdAt: -1 })
             .select("-password")
+            .skip(skip)
+            .limit(limit)
             .lean();
 
         if (users.length === 0) {
-            return NextResponse.json({ success: true, users: [] });
+            return NextResponse.json({ success: true, users: [], total, page, limit });
         }
 
         // ✅ FIXED: single aggregation instead of fetching all orders and looping
@@ -102,7 +104,7 @@ export async function GET(req: NextRequest) {
             };
         });
 
-        return NextResponse.json({ success: true, users: shaped });
+        return NextResponse.json({ success: true, users: shaped, total, page, limit });
     } catch (error) {
         console.error("GET_USERS_ERROR", error);
         return NextResponse.json(

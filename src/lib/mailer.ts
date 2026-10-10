@@ -30,6 +30,11 @@ import {
     type AdminOrderAlertEmailData,
 } from "./emailTemplates/adminOrderAlert";
 import {
+    renderAdminOrderCancelledAlertEmailHtml,
+    renderAdminOrderCancelledAlertEmailText,
+    type AdminOrderCancelledAlertEmailData,
+} from "./emailTemplates/adminOrderCancelledAlert";
+import {
     renderOrderDeliveredEmailHtml,
     renderOrderDeliveredEmailText,
     type OrderDeliveredEmailData,
@@ -237,6 +242,32 @@ export async function sendAdminOrderAlertEmail(data: AdminOrderAlertEmailData): 
         subject: `🔥 New Order ${data.orderId} — ${data.paymentMethod.toUpperCase()}`,
         text: renderAdminOrderAlertEmailText(data),
         html: renderAdminOrderAlertEmailHtml(data),
+    });
+}
+
+/**
+ * Phase 14 — sends the cancellation alert to the admin inbox (ADMIN_EMAIL
+ * env var) when a CUSTOMER cancels an order. Mirrors
+ * sendAdminOrderAlertEmail's exact pattern: silently no-ops if ADMIN_EMAIL
+ * isn't configured rather than throwing, since this is an internal
+ * operational notification, not a customer-facing email.
+ */
+export async function sendAdminOrderCancelledAlertEmail(data: AdminOrderCancelledAlertEmailData): Promise<void> {
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (!adminEmail) {
+        console.warn("ADMIN_ORDER_CANCELLED_ALERT_SKIPPED: ADMIN_EMAIL is not configured.");
+        return;
+    }
+
+    const transporter = getTransporter();
+    const from = getFromAddress();
+
+    await transporter.sendMail({
+        from,
+        to: adminEmail,
+        subject: `🚫 Order Cancelled ${data.orderId} — by ${data.cancelledByType}`,
+        text: renderAdminOrderCancelledAlertEmailText(data),
+        html: renderAdminOrderCancelledAlertEmailHtml(data),
     });
 }
 

@@ -4,7 +4,8 @@
 // Premium light warm auth shell — FoodKnock
 // Zero dark surfaces. Emotionally engaging. FOMO-driven.
 
-import { useState } from "react";
+import { useState, useLayoutEffect } from "react";
+import { useRouter } from "next/navigation";
 import LoginForm from "./LoginForm";
 import RegisterForm from "./RegisterForm";
 import ForgotPasswordForm from "./ForgotPasswordForm";
@@ -12,24 +13,51 @@ import VerifyOtpForm from "./VerifyOtpForm";
 import ResetPasswordForm from "./ResetPasswordForm";
 import ResetSuccessScreen from "./ResetSuccessScreen";
 import VerifySignupOtpForm from "./VerifySignupOtpForm";
-import { Star, Flame, Zap, Gift, Shield } from "lucide-react";
+import { hasAuthenticatedBefore } from "@/lib/authDeviceMemory";
+import { Flame, Zap, Shield } from "lucide-react";
 
 type Tab = "login" | "register";
 type View = Tab | "forgot-password" | "verify-otp" | "reset-password" | "reset-success" | "verify-signup-otp";
-type AuthTabsProps = { redirectTo?: string };
+type AuthTabsProps = { redirectTo?: string; initialMode?: Tab; hasExplicitMode?: boolean; initialReferralCode?: string };
 
+// Responsive + content audit — two of these were unsubstantiated marketing
+// claims with no backing feature ("Exclusive member-only deals" and
+// "Birthday surprise gift from us" — no such program exists anywhere in
+// the app). Replaced with real, already-shipped features: saved addresses
+// (Account → Addresses) and loyalty points (src/lib/loyaltyService.ts).
 const PERKS = [
-    { icon: "⚡", text: "Faster checkout every time" },
-    { icon: "🎁", text: "Exclusive member-only deals" },
+    { icon: "⭐", text: "Earn loyalty points on every order" },
+    { icon: "📍", text: "Save addresses for faster checkout" },
     { icon: "📦", text: "Order history & 1-tap reorder" },
-    { icon: "🎂", text: "Birthday surprise gift from us" },
+    { icon: "🔔", text: "Live order tracking & updates" },
 ];
 
-export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
-    const [view, setView] = useState<View>("login");
+export default function AuthTabs({ redirectTo = "/", initialMode = "register", hasExplicitMode = false, initialReferralCode = "" }: AuthTabsProps) {
+    const router = useRouter();
+    const [view, setView] = useState<View>(initialMode);
     const [resetEmail, setResetEmail] = useState("");
     const [resetToken, setResetToken] = useState("");
     const [signupEmail, setSignupEmail] = useState("");
+
+    // AUTH 2.0 — smart entry routing, priority #3: "previously authenticated
+    // device marker". Runs in useLayoutEffect (not useEffect) so the
+    // correction commits before the browser paints — a returning visitor
+    // should never see a visible "Create Account → Sign In" flash. Only
+    // ever applies when:
+    //   - the URL gave no explicit mode (priority #1/#2 already won server-
+    //     side in page.tsx if it did — see `hasExplicitMode`)
+    //   - the current view is still the untouched SSR default ("register")
+    // so it can only ever flip the DEFAULT, never override a deliberate
+    // choice (explicit URL, or the user having already manually switched
+    // tabs in this session).
+    useLayoutEffect(() => {
+        if (!hasExplicitMode && view === "register" && hasAuthenticatedBefore()) {
+            setView("login");
+        }
+        // Intentionally runs once on mount only — this is a one-time
+        // initial-default correction, not an ongoing sync.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // The pill tab-switcher only applies to login/register — treat any
     // other view as "login" for the purpose of which pill is highlighted,
@@ -38,26 +66,35 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
     const activeTab: Tab = view === "register" ? "register" : "login";
     const isTabView = view === "login" || view === "register";
 
-    const goToLogin = () => {
-        setView("login");
+    // Keeps the URL's ?mode= in sync with the visible tab (AUTH EXPERIENCE
+    // 2.0 §7) via router.replace — no history-entry spam from toggling
+    // tabs, no full page reload, and the existing ?redirect= param (used
+    // by every guard that sends a guest here) is preserved untouched.
+    // REFERRAL EXPERIENCE 2.0: ?ref= is preserved too (so a refresh after
+    // switching tabs doesn't lose the original referral hint) but — per
+    // spec §17 — is only ever read by RegisterForm; LoginForm never
+    // receives it, so a referral link never injects a code into sign-in.
+    const switchTab = (tab: Tab) => {
+        setView(tab);
         setResetEmail("");
         setResetToken("");
         setSignupEmail("");
+
+        const qs = new URLSearchParams();
+        qs.set("mode", tab);
+        if (redirectTo && redirectTo !== "/") qs.set("redirect", redirectTo);
+        if (initialReferralCode) qs.set("ref", initialReferralCode);
+        router.replace(`/auth?${qs.toString()}`, { scroll: false });
     };
 
-    return (
-        <div className="w-full max-w-[440px]">
+    const goToLogin = () => switchTab("login");
 
-            {/* ── FOMO nudge pill ── */}
-            <div className="mb-4 flex items-center gap-3 rounded-2xl border border-amber-200 bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3 shadow-sm">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-sm">
-                    <Gift size={14} className="text-white" strokeWidth={2.5} />
-                </div>
-                <p className="text-[11px] font-bold leading-snug text-stone-700">
-                    <span className="font-black text-orange-600">2,450+ customers</span> already ordering smarter —{" "}
-                    <span className="text-stone-500">join free today!</span>
-                </p>
-            </div>
+    return (
+        // Responsive fix — bumped from 440px to 460px (top of the spec's
+        // 420-460px recommended card width), giving the form a touch more
+        // breathing room on laptop/desktop now that it's no longer forced
+        // into a cramped column (see auth/page.tsx's grid breakpoint fix).
+        <div className="w-full max-w-[460px]">
 
             {/* ── Main card ── */}
             <div className="overflow-hidden rounded-3xl border border-amber-200/80 bg-white shadow-2xl shadow-orange-100/50">
@@ -78,11 +115,14 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                     <div className="pointer-events-none absolute -left-4 bottom-0 h-24 w-24 rounded-full bg-white/10 blur-xl" />
                     <div className="pointer-events-none absolute left-1/2 top-0 h-20 w-20 -translate-x-1/2 rounded-full bg-white/10 blur-2xl" />
 
-                    {/* Floating food emojis */}
+                    {/* Floating food emojis — `fk-auth-bob` (not inline
+                        `style`) so prefers-reduced-motion can turn it off;
+                        the previous inline-style version had no reduced-
+                        motion guard at all. */}
                     <div className="pointer-events-none absolute right-5 top-4 flex gap-2 select-none text-2xl opacity-20">
-                        <span style={{ animation: "authBob 2.4s ease-in-out infinite alternate" }}>🍔</span>
-                        <span style={{ animation: "authBob 3.1s ease-in-out infinite alternate" }}>🥤</span>
-                        <span style={{ animation: "authBob 2.7s ease-in-out infinite alternate" }}>🍟</span>
+                        <span className="fk-auth-bob" style={{ animationDuration: "2.4s" }}>🍔</span>
+                        <span className="fk-auth-bob" style={{ animationDuration: "3.1s" }}>🥤</span>
+                        <span className="fk-auth-bob" style={{ animationDuration: "2.7s" }}>🍟</span>
                     </div>
 
                     <div className="relative z-10">
@@ -108,8 +148,8 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                             {view === "verify-signup-otp" && "One last step! 📩"}
                         </h2>
                         <p className="mt-1 text-[12.5px] font-medium text-white/80">
-                            {view === "login" && "Your cart, deals & saved address are waiting."}
-                            {view === "register" && "Free to join. Deals & perks from day one."}
+                            {view === "login" && "Your cart and saved addresses are waiting."}
+                            {view === "register" && "Free to join. Start ordering in minutes."}
                             {view === "forgot-password" && "We'll send a code to verify it's you."}
                             {view === "verify-otp" && "Enter the code we just sent you."}
                             {view === "reset-password" && "Make it strong and memorable."}
@@ -135,7 +175,7 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                             <button
                                 key={tab}
                                 type="button"
-                                onClick={() => setView(tab)}
+                                onClick={() => switchTab(tab)}
                                 aria-selected={activeTab === tab}
                                 role="tab"
                                 className={`relative z-10 flex-1 rounded-xl py-2.5 text-[13px] font-black transition-colors duration-200 ${activeTab === tab ? "text-orange-600" : "text-stone-400 hover:text-stone-600"
@@ -147,31 +187,23 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                     </div>
                 )}
 
-                {/* ── Context-aware social proof (login/register only) ── */}
+                {/* ── Context-aware intro (login/register only) ──
+                    FoodKnock Phase 6: the login-tab box here used to show a
+                    fabricated "Rated 4.9/5 by 2,450+ real customers" claim
+                    with fake avatar initials — no backing data existed
+                    anywhere for either number. Replaced with a real,
+                    always-true fact instead of inventing a replacement
+                    statistic. */}
                 {isTabView && (
                     <div className="px-6 pt-5">
                         {activeTab === "login" ? (
                             <div className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-3">
-                                <div className="flex gap-0.5 shrink-0">
-                                    {[1, 2, 3, 4, 5].map((i) => (
-                                        <Star key={i} size={13} className="fill-amber-400 text-amber-400" />
-                                    ))}
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-sm">
+                                    <Flame size={16} className="text-white" strokeWidth={2.5} />
                                 </div>
                                 <div className="min-w-0 flex-1">
-                                    <p className="text-[11px] font-black text-stone-800">
-                                        Rated <span className="text-orange-600">4.9/5</span> by 2,450+ real customers
-                                    </p>
-                                    <p className="text-[10px] text-stone-400">Sikar & Danta's most loved food spot</p>
-                                </div>
-                                <div className="flex -space-x-1.5 shrink-0">
-                                    {["from-amber-400 to-orange-500", "from-orange-400 to-red-500", "from-yellow-400 to-amber-500"].map((g, i) => (
-                                        <div
-                                            key={i}
-                                            className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br ${g} text-[9px] font-black text-white shadow`}
-                                        >
-                                            {["P", "R", "A"][i]}
-                                        </div>
-                                    ))}
+                                    <p className="text-[11px] font-black text-stone-800">Made fresh in Danta, Sikar</p>
+                                    <p className="text-[10px] text-stone-400">Cooked to order, every time you sign in</p>
                                 </div>
                             </div>
                         ) : (
@@ -196,10 +228,15 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                         <LoginForm
                             redirectTo={redirectTo}
                             onForgotPassword={() => setView("forgot-password")}
+                            onSwitchToRegister={() => switchTab("register")}
                         />
                     )}
                     {view === "register" && (
-                        <RegisterForm onOtpSent={(email) => { setSignupEmail(email); setView("verify-signup-otp"); }} />
+                        <RegisterForm
+                            onOtpSent={(email) => { setSignupEmail(email); setView("verify-signup-otp"); }}
+                            onSwitchToLogin={() => switchTab("login")}
+                            initialReferralCode={initialReferralCode}
+                        />
                     )}
                     {view === "verify-signup-otp" && (
                         <VerifySignupOtpForm
@@ -258,6 +295,15 @@ export default function AuthTabs({ redirectTo = "/" }: AuthTabsProps) {
                 @keyframes authBob {
                     from { transform: translateY(0px) rotate(-5deg); }
                     to   { transform: translateY(-8px) rotate(5deg); }
+                }
+                .fk-auth-bob {
+                    animation-name: authBob;
+                    animation-timing-function: ease-in-out;
+                    animation-iteration-count: infinite;
+                    animation-direction: alternate;
+                }
+                @media (prefers-reduced-motion: reduce) {
+                    .fk-auth-bob { animation: none; }
                 }
             `}</style>
         </div>

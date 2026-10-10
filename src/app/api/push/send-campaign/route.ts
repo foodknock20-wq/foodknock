@@ -2,7 +2,9 @@ export const dynamic = "force-dynamic";
 // src/app/api/push/send-campaign/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { broadcastCampaign, type NotificationSlot } from "@/lib/webpush";
+import { broadcastCampaign, campaignIdFor, type NotificationSlot } from "@/lib/webpush";
+import { connectDB } from "@/lib/db";
+import NotificationLog from "@/models/NotificationLog";
 
 function getISTHour(): number {
   const now = new Date();
@@ -56,6 +58,28 @@ export async function POST(req: NextRequest) {
       (isValidSlot(querySlot) ? querySlot : null) ||
       bodySlot ||
       (istHour < 14 ? "morning" : "evening");
+
+    // PHASE 8: duplicate-run guard. Without this, a cron misfire/retry,
+    // an overlapping invocation, or a manual replay with the cron secret
+    // within the same slot/day would re-broadcast the identical campaign
+    // to every active subscriber a second time — a real duplicate-
+    // notification source (Step 27), distinct from and in addition to
+    // Phase 6's existing batching/concurrency work. campaignId is
+    // deterministic per (slot, IST calendar day) and already indexed on
+    // NotificationLog, so this is a single indexed lookup, not a scan.
+    const campaignId = campaignIdFor(slot);
+    await connectDB();
+    const alreadySent = await NotificationLog.findOne({ campaignId }).select("_id").lean();
+    if (alreadySent) {
+      console.log(`PUSH_CAMPAIGN_SKIPPED_DUPLICATE: slot=${slot}, campaignId=${campaignId}`);
+      return NextResponse.json({
+        success: true,
+        skipped: true,
+        message: "Campaign already sent for this slot today",
+        slot,
+        istHour,
+      });
+    }
 
     console.log(`PUSH_CAMPAIGN_START: slot=${slot}, istHour=${istHour}`);
 

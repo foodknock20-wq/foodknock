@@ -17,7 +17,7 @@ type UserContact = { name: string; phone: string };
 type FetchState =
     | { status: "idle" }
     | { status: "loading" }
-    | { status: "success"; users: UserContact[] }
+    | { status: "success"; users: UserContact[]; truncated: boolean; realTotal: number }
     | { status: "error"; message: string };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -59,7 +59,12 @@ export default function ExportUsersButton() {
                 throw new Error(data.message ?? "Failed to load users");
             }
 
-            setState({ status: "success", users: data.users });
+            setState({
+                status: "success",
+                users: data.users,
+                truncated: !!data.truncated,
+                realTotal: data.realTotal ?? data.users.length,
+            });
         } catch (err: any) {
             const message = err.message ?? "Something went wrong";
             setState({ status: "error", message });
@@ -171,6 +176,14 @@ export default function ExportUsersButton() {
                             {/* Success */}
                             {state.status === "success" && (
                                 <>
+                                    {/* Phase 15A — honest truncation notice, never silent */}
+                                    {state.truncated && (
+                                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[12px] text-amber-400">
+                                            Showing the first {state.users.length.toLocaleString("en-IN")} of{" "}
+                                            {state.realTotal.toLocaleString("en-IN")} active users. Export is capped — contact support for a full pull.
+                                        </div>
+                                    )}
+
                                     {/* Search */}
                                     <input
                                         type="text"

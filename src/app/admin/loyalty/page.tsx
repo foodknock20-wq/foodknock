@@ -20,6 +20,7 @@ import {
     Clock, RefreshCw, SlidersHorizontal, Wallet,
     Crown, Zap, Activity, BarChart2,
 } from "lucide-react";
+import AdminPageHeader from "@/components/admin/shared/AdminPageHeader";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -450,7 +451,7 @@ export default function AdminLoyaltyPage() {
                             <button
                                 onClick={() => setModal(null)}
                                 aria-label="Close modal"
-                                className="text-stone-600 hover:text-stone-300 transition-colors"
+                                className="text-stone-300 hover:text-stone-100 transition-colors"
                             >
                                 <X size={16} />
                             </button>
@@ -471,7 +472,7 @@ export default function AdminLoyaltyPage() {
                                                 onClick={() => setModal((m) => m ? { ...m, debitReason: r.value } : null)}
                                                 className={`flex flex-col items-center gap-1.5 rounded-xl border p-2.5 text-center transition-all ${modal.debitReason === r.value
                                                         ? "border-rose-500/40 bg-rose-500/15 text-rose-300"
-                                                        : "border-white/[0.06] bg-white/[0.03] text-stone-500 hover:border-white/[0.12]"
+                                                        : "border-white/[0.06] bg-white/[0.03] text-stone-300 hover:border-white/[0.12]"
                                                     }`}
                                             >
                                                 <span className="text-lg">{r.icon}</span>
@@ -512,7 +513,7 @@ export default function AdminLoyaltyPage() {
                                                 onClick={() => setModal((m) => m ? { ...m, points: String(n) } : null)}
                                                 className={`rounded-full border px-2.5 py-0.5 text-[11px] font-bold transition-all ${modal.points === String(n)
                                                         ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-400"
-                                                        : "border-white/[0.07] bg-white/[0.03] text-stone-600 hover:text-stone-300"
+                                                        : "border-white/[0.07] bg-white/[0.03] text-stone-300 hover:text-stone-100"
                                                     }`}
                                             >
                                                 {n}
@@ -591,30 +592,21 @@ export default function AdminLoyaltyPage() {
             {/* ══════════════════════════════════════════════════════════════
                 PAGE HEADER
             ══════════════════════════════════════════════════════════════ */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <div className="mb-1.5 inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/8 px-3 py-1">
-                        <Star size={11} className="text-amber-400" />
-                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">
-                            Loyalty Control
-                        </span>
-                    </div>
-                    <h1 className="font-serif text-2xl font-bold text-white md:text-3xl">
-                        Loyalty Dashboard
-                    </h1>
-                    <p className="mt-1 text-sm text-stone-600">
-                        Manage points, track balances, and control customer rewards.
-                    </p>
-                </div>
-                <button
-                    onClick={handleRefresh}
-                    disabled={loading}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-2 text-sm font-bold text-stone-400 transition-colors hover:text-white disabled:opacity-50"
-                >
-                    <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
-                    Refresh
-                </button>
-            </div>
+            <AdminPageHeader
+                icon={Star}
+                title="Loyalty"
+                description="Manage points, track balances, and control customer rewards"
+                actions={
+                    <button
+                        onClick={handleRefresh}
+                        disabled={loading}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.04] px-4 py-2 text-sm font-bold text-stone-200 transition-colors hover:text-white disabled:opacity-50"
+                    >
+                        <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
+                        Refresh
+                    </button>
+                }
+            />
 
             {/* ══════════════════════════════════════════════════════════════
                 GLOBAL ANALYTICS STRIP
@@ -672,7 +664,7 @@ export default function AdminLoyaltyPage() {
                                         onClick={() => setSortKey(key)}
                                         className={`rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wider transition-all ${sortKey === key
                                                 ? "border border-amber-500/35 bg-amber-500/15 text-amber-400"
-                                                : "border border-white/[0.06] bg-white/[0.02] text-stone-600 hover:text-stone-400"
+                                                : "border border-white/[0.06] bg-white/[0.02] text-stone-300 hover:text-stone-100"
                                             }`}
                                     >
                                         {label}
@@ -854,7 +846,7 @@ export default function AdminLoyaltyPage() {
                                         aria-current={p === page ? "page" : undefined}
                                         className={`flex h-8 w-8 items-center justify-center rounded-lg text-[12px] font-bold transition-colors ${p === page
                                                 ? "border border-amber-500/30 bg-amber-500/15 text-amber-400"
-                                                : "border border-white/[0.07] bg-white/[0.03] text-stone-500 hover:text-white"
+                                                : "border border-white/[0.07] bg-white/[0.03] text-stone-300 hover:text-white"
                                             }`}
                                     >
                                         {p}

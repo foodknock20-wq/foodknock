@@ -4,6 +4,7 @@
 // operational use — every business-relevant field is surfaced.
 
 import { renderEmailShell, escapeHtml, formatCurrency, formatDateTime, plainTextFooter, BRAND_COLOR } from "./shell";
+import { formatDistance } from "@/lib/formatDistance";
 
 export type AdminOrderAlertItem = {
     name:     string;
@@ -28,6 +29,13 @@ export type AdminOrderAlertEmailData = {
     paymentMethod:        string;
     items:                AdminOrderAlertItem[];
     createdAt:            Date;
+    // Phase 10 — admin-facing only; never included in customer emails.
+    distanceKm?:          number | null;
+    mapsUrl?:             string | null;
+    deliveryInstructions?: string;
+    // Phase 11 — coupon, admin-facing only (never in customer emails).
+    couponCode?:          string | null;
+    couponDiscountAmount?: number;
 };
 
 function itemsRowsHtml(items: AdminOrderAlertItem[]): string {
@@ -83,6 +91,10 @@ export function renderAdminOrderAlertEmailHtml(data: AdminOrderAlertEmailData): 
       ${infoRow("Address", escapeHtml(data.address || "—"))}
       ${data.landmark ? infoRow("Landmark", escapeHtml(data.landmark)) : ""}
       ${data.note ? infoRow("Note", escapeHtml(data.note)) : ""}
+      ${data.deliveryInstructions ? infoRow("Delivery Instructions", escapeHtml(data.deliveryInstructions)) : ""}
+      ${typeof data.distanceKm === "number" ? infoRow("Distance from kitchen", formatDistance(data.distanceKm)) : ""}
+      ${data.couponCode ? infoRow("Coupon", `${escapeHtml(data.couponCode)} (-${formatCurrency(data.couponDiscountAmount ?? 0)})`) : ""}
+      ${data.mapsUrl ? infoRow("Navigate", "Open in Google Maps (to customer)", { href: escapeHtml(data.mapsUrl) }) : ""}
     </table>
 
     <div style="font-size:11px;font-weight:800;color:#78716c;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;">
@@ -144,6 +156,10 @@ export function renderAdminOrderAlertEmailText(data: AdminOrderAlertEmailData): 
         `Address: ${data.address || "—"}\n` +
         (data.landmark ? `Landmark: ${data.landmark}\n` : "") +
         (data.note ? `Note: ${data.note}\n` : "") +
+        (data.deliveryInstructions ? `Delivery Instructions: ${data.deliveryInstructions}\n` : "") +
+        (typeof data.distanceKm === "number" ? `Distance from kitchen: ${formatDistance(data.distanceKm)}\n` : "") +
+        (data.mapsUrl ? `Navigate: ${data.mapsUrl}\n` : "") +
+        (data.couponCode ? `Coupon: ${data.couponCode} (-${formatCurrency(data.couponDiscountAmount ?? 0)})\n` : "") +
         `Type: ${data.orderType.toUpperCase()}\n` +
         `Payment: ${data.paymentMethod.toUpperCase()}\n\n` +
         `Items:\n${itemLines}\n\n` +

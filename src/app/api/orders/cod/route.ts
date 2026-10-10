@@ -30,17 +30,15 @@ import { connectDB }    from "@/lib/db";
 import User              from "@/models/User";
 import { verifyToken }  from "@/lib/auth";
 import { getShopStatus } from "@/models/Shop";
-import {
-    calculateDeliveryFee,
-    PLATFORM_FEE,
-} from "@/lib/delivery";
-import { checkFirstFreeDelivery } from "@/lib/firstFreeDelivery";
+import { PLATFORM_FEE } from "@/lib/delivery";
+import { calculateDeliveryPricing } from "@/lib/serviceability";
 import {
     LOYALTY_CONFIG,
     maxRedeemablePoints,
     pointsToRupees,
 } from "@/lib/loyaltyService";
 import { createOrderCore } from "@/lib/createOrderCore";
+import { calculateAuthoritativePricing } from "@/lib/pricing";
 import { COD_MAX_ORDER_AMOUNT } from "@/lib/constants";
 
 export async function POST(req: Request) {
@@ -89,6 +87,20 @@ export async function POST(req: Request) {
             } catch {}
         }
 
+        // Phase 9 finalization: this header comment has said "guest COD is
+        // blocked" since this file was written, but no code here ever
+        // actually enforced it — an absent/invalid token silently fell
+        // through with linkedUserId left null, and createOrderCore happily
+        // creates a null-user ("guest") order. Closing that gap for real,
+        // mirroring the same hard gate already enforced in
+        // /api/payment/create-order, /api/payment/verify, and /api/orders.
+        if (!linkedUserId) {
+            return NextResponse.json(
+                { success: false, message: "Please log in to place an order" },
+                { status: 401 }
+            );
+        }
+
         const body = await req.json();
         const {
             customerName,
@@ -99,32 +111,46 @@ export async function POST(req: Request) {
             orderType = "delivery",
             items: rawItems,
             redeemedPoints: requestedRedeemPoints = 0,
+            latitude:  bodyLatitude  = null,
+            longitude: bodyLongitude = null,
+            deliveryInstructions = "",
+            couponCode = null,
         } = body;
 
-        const items: Array<{ _id: string; name: string; price: number; quantity: number; image?: string }> =
-            rawItems ?? [];
+        const latitude  = typeof bodyLatitude  === "number" && Number.isFinite(bodyLatitude)  ? bodyLatitude  : null;
+        const longitude = typeof bodyLongitude === "number" && Number.isFinite(bodyLongitude) ? bodyLongitude : null;
 
-        if (!items.length) {
+        // PHASE 2A: client sends { _id, quantity } — any client-supplied
+        // price is ignored. Authoritative name/price/image come from the
+        // live Product document. See src/lib/pricing.ts.
+        const { items, subtotal } = await calculateAuthoritativePricing(rawItems ?? []);
+
+        // Phase 10 — the same authoritative engine createOrderCore()
+        // re-validates with below. Never trust a client-supplied fee/
+        // distance/serviceable flag.
+        const pricing = await calculateDeliveryPricing({
+            latitude,
+            longitude,
+            cartSubtotal: subtotal,
+            linkedUserId,
+            orderType,
+        });
+
+        if (orderType === "delivery" && !pricing.serviceable) {
+            const message = pricing.reason === "coordinates_required"
+                ? "Please select your delivery location to continue."
+                : "This delivery location is outside FoodKnock's current delivery area.";
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+
+        if (subtotal < pricing.minimumOrderValue) {
             return NextResponse.json(
-                { success: false, message: "Cart is empty" },
+                { success: false, message: `Minimum order amount is ₹${pricing.minimumOrderValue}` },
                 { status: 400 }
             );
         }
 
-        // ── Compute gross total to enforce COD limit ───────────────────────
-        const subtotal = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
-
-        const { eligible: firstDeliveryFree } = await checkFirstFreeDelivery(
-            linkedUserId,
-            orderType
-        );
-
-        const deliveryFee =
-            orderType === "pickup"
-                ? 0
-                : firstDeliveryFree
-                    ? 0
-                    : calculateDeliveryFee(subtotal);
+        const deliveryFee = pricing.deliveryFee;
 
         const grossTotal = subtotal + deliveryFee + PLATFORM_FEE;
 
@@ -169,6 +195,12 @@ export async function POST(req: Request) {
     items,
     linkedUserId,
     validatedRedeemPoints,
+    latitude,
+    longitude,
+    deliveryInstructions: String(deliveryInstructions ?? "").trim().slice(0, 300),
+    // Phase 11 — createOrderCore validates+reserves this itself against
+    // its own authoritative subtotal; never trusted/precomputed here.
+    couponCode: couponCode ? String(couponCode) : null,
 });
 
         return NextResponse.json(
@@ -178,6 +210,7 @@ export async function POST(req: Request) {
                 reviewRewardApplied:   result.reviewRewardApplied,
                 loyaltyPointsRedeemed: result.loyaltyPointsRedeemed,
                 isFirstDeliveryFreeApplied: result.isFirstDeliveryFreeApplied,
+                couponDiscountAmount:  result.couponDiscountAmount,
             },
             { status: 201 }
         );

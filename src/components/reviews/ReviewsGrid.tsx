@@ -1,30 +1,51 @@
 "use client";
 
 // src/components/reviews/ReviewsGrid.tsx
-// Premium light-theme review grid for FoodKnock.
-// Preserves all existing logic: auth check, POST /api/reviews, router.refresh, modals.
+// FoodKnock Reviews 2.0 — premium two-column reviews experience.
+//
+// Owns the whole page body below the compact header in page.tsx: the real
+// desktop two-column grid (sticky rating-summary panel + review feed) and
+// every piece of interactive state (write-review flow, login nudge, the
+// "read more" modal, Load More). The summary panel's CTA and the feed's
+// own CTAs need to open the SAME modal — keeping all of it in one client
+// component avoids prop-drilling modal state across a server/client
+// boundary split between two columns.
+//
+// Business logic preserved byte-for-byte from the previous version:
+// auth check via /api/auth/me, POST /api/reviews, router.refresh() on
+// success, the 10-char minimum, the rate-limited public submit endpoint.
+//
+// Real-data fixes this pass:
+//   - Removed a fabricated "Verified" badge that previously rendered on
+//     EVERY review card with zero backing data — src/models/Review.ts has
+//     no purchase/order linkage at all, so there was never a real
+//     verified-purchase signal to show. See src/app/(main)/reviews/
+//     page.tsx's header comment for the matching `totalApproved` fix.
+//   - avgRating/distribution now explicitly guarded to "No ratings yet"
+//     when there are zero reviews — never a fabricated 5.0 fallback.
+//   - Removed the duplicate bottom marketing CTA band (same two actions —
+//     write a review / browse menu — were already offered in the summary
+//     panel and feed header; a second loud gradient band repeating them
+//     was decoration, not function).
 
 import { useState, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
-    Star, X, MessageSquarePlus, Loader2, Send,
+    Star, MessageSquarePlus, Loader2, Send,
     CheckCircle2, LogIn, Lock, ChevronRight, Quote,
 } from "lucide-react";
 import Link from "next/link";
+import BottomSheet from "@/components/ui/BottomSheet";
 import type { PublicReview } from "@/app/(main)/reviews/page";
 
-// ─── Avatar gradient palette (warm food tones) ────────────────────────────
-const AVATAR_GRADS = [
-    ["#f97316", "#ef4444"],
-    ["#fbbf24", "#f97316"],
-    ["#34d399", "#059669"],
-    ["#60a5fa", "#3b82f6"],
-    ["#fb923c", "#fcd34d"],
-    ["#f472b6", "#ec4899"],
-    ["#a3e635", "#65a30d"],
-    ["#38bdf8", "#0ea5e9"],
-    ["#c084fc", "#9333ea"],
-    ["#fb7185", "#f43f5e"],
+// ─── Avatar gradient palette — warm FoodKnock tones only ──────────────────
+const AVATAR_GRADS: [string, string][] = [
+    ["#ff5c1a", "#f97316"],
+    ["#f97316", "#fbbf24"],
+    ["#dc2626", "#f97316"],
+    ["#d97706", "#fbbf24"],
+    ["#ea580c", "#facc15"],
+    ["#b45309", "#f59e0b"],
 ];
 
 const getGrad = (i: number) => AVATAR_GRADS[i % AVATAR_GRADS.length];
@@ -53,15 +74,16 @@ function truncateWords(text: string): { preview: string; isTruncated: boolean } 
     return { preview: words.slice(0, WORD_LIMIT).join(" ") + "…", isTruncated: true };
 }
 
-// ─── Stars ────────────────────────────────────────────────────────────────
+// ─── Stars — accessible, not color-only ──────────────────────────────────
 function Stars({ rating, size = 13 }: { rating: number; size?: number }) {
     return (
-        <div className="flex items-center gap-0.5">
+        <div role="img" aria-label={`${rating} out of 5 stars`} className="flex items-center gap-0.5">
             {[1, 2, 3, 4, 5].map((s) => (
                 <Star
                     key={s}
                     size={size}
-                    className={s <= rating ? "fill-amber-400 text-amber-400" : "fill-amber-100 text-amber-100"}
+                    aria-hidden="true"
+                    className={s <= rating ? "fill-[var(--fk-accent)] text-[var(--fk-accent)]" : "fill-fk-surface-interactive text-fk-surface-interactive"}
                 />
             ))}
         </div>
@@ -82,94 +104,80 @@ function StarInput({ value, onChange }: { value: number; onChange: (n: number) =
                         onClick={() => onChange(s)}
                         onMouseEnter={() => setHov(s)}
                         onMouseLeave={() => setHov(0)}
-                        className="transition-transform hover:scale-125 active:scale-110 focus:outline-none"
-                        aria-label={`Rate ${s} stars`}
+                        className="transition-transform motion-reduce:transition-none hover:scale-125 motion-reduce:hover:scale-100 active:scale-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--fk-accent)] focus-visible:ring-offset-2 rounded-fk-sm"
+                        aria-label={`Rate ${s} star${s === 1 ? "" : "s"}`}
                     >
                         <Star
                             size={32}
-                            className={
-                                s <= (hov || value)
-                                    ? "fill-amber-400 text-amber-400 drop-shadow-[0_0_6px_rgba(251,191,36,0.6)]"
-                                    : "fill-amber-100 text-amber-200"
-                            }
+                            aria-hidden="true"
+                            className={s <= (hov || value) ? "fill-[var(--fk-accent)] text-[var(--fk-accent)]" : "fill-fk-surface-interactive text-fk-border"}
                         />
                     </button>
                 ))}
             </div>
             {(hov || value) > 0 && (
-                <p className="mt-2 text-sm font-bold text-orange-500">
-                    {labels[hov || value]}
-                </p>
+                <p className="mt-2 text-sm font-bold text-[var(--fk-accent)]">{labels[hov || value]}</p>
             )}
         </div>
     );
 }
 
 // ─── Full review modal ────────────────────────────────────────────────────
+// Reviews 2.1 — migrated from a hand-rolled `fixed z-50` div to the shared
+// <BottomSheet> primitive. ROOT-CAUSE FIX: BottomNavigation is ALSO
+// `fixed z-50` (src/components/shell/BottomNavigation.tsx) and renders
+// AFTER page content in CustomerShell's DOM order — with equal z-index,
+// later-in-DOM wins, so this modal (same z-50, but earlier in the tree)
+// was rendering UNDERNEATH BottomNavigation. BottomSheet is portaled to
+// document.body at z-[60]/z-[70], genuinely above everything else in the
+// shell, fixing this at the correct shared-primitive level instead of
+// picking an arbitrary bigger number here.
 function ReviewModal({ review, idx, onClose }: { review: PublicReview; idx: number; onClose: () => void }) {
     const [from, to] = getGrad(idx);
 
-    useEffect(() => {
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
-
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm md:items-center md:p-4"
-            onClick={onClose}
-        >
-            {/* Bottom sheet on mobile, centered card on desktop */}
-            <div
-                className="relative w-full rounded-t-3xl bg-white px-6 pb-8 pt-6 shadow-2xl shadow-orange-100/60 md:max-w-md md:rounded-3xl md:p-8"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Drag handle (mobile) */}
-                <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-stone-200 md:hidden" />
-
-                <button
-                    onClick={onClose}
-                    aria-label="Close"
-                    className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-xl border border-stone-100 bg-stone-50 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-700"
+        <BottomSheet open onClose={onClose} ariaLabel={`Review by ${review.userName}`}>
+            <div className="flex items-center gap-4">
+                <div
+                    className="flex h-14 w-14 shrink-0 items-center justify-center rounded-fk-md text-lg font-black text-white shadow-md"
+                    style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
+                    aria-hidden="true"
                 >
-                    <X size={15} />
-                </button>
-
-                {/* Avatar + name */}
-                <div className="flex items-center gap-4">
-                    <div
-                        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl text-lg font-black text-white shadow-md"
-                        style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
-                    >
-                        {initials(review.userName)}
-                    </div>
-                    <div>
-                        <p className="text-lg font-black text-stone-900">{review.userName}</p>
-                        <div className="mt-1 flex items-center gap-2">
-                            <Stars rating={review.rating} size={13} />
-                            <span className="text-[11px] text-stone-400">{timeAgo(review.createdAt)}</span>
-                        </div>
+                    {initials(review.userName)}
+                </div>
+                <div>
+                    <p className="text-lg font-black text-fk-text">{review.userName}</p>
+                    <div className="mt-1 flex items-center gap-2">
+                        <Stars rating={review.rating} size={13} />
+                        <span className="text-[11px] text-fk-text-tertiary">{timeAgo(review.createdAt)}</span>
                     </div>
                 </div>
-
-                {/* Full comment */}
-                <div className="relative mt-5 rounded-2xl border border-amber-100 bg-amber-50/60 p-5">
-                    <div className="absolute left-0 top-4 bottom-4 w-1 rounded-full bg-gradient-to-b from-orange-400 to-amber-400 ml-0" style={{ left: "-1px", borderRadius: "0 4px 4px 0" }} />
-                    <Quote size={18} className="mb-2 text-amber-300" />
-                    <p className="text-sm leading-7 text-stone-700">{review.comment}</p>
-                </div>
-
-                <p className="mt-3 text-right text-[11px] text-stone-400">
-                    {new Date(review.createdAt).toLocaleDateString("en-IN", {
-                        day: "2-digit", month: "long", year: "numeric",
-                    })}
-                </p>
             </div>
-        </div>
+
+            <div className="relative mt-5 rounded-fk-md border border-fk-border bg-fk-gold-soft p-5">
+                <Quote size={18} className="mb-2 text-fk-gold" aria-hidden="true" />
+                <p className="text-sm leading-7 text-fk-text-secondary">{review.comment}</p>
+            </div>
+
+            <p className="mt-3 text-right text-[11px] text-fk-text-tertiary">
+                {new Date(review.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })}
+            </p>
+        </BottomSheet>
     );
 }
 
 // ─── Add review modal ─────────────────────────────────────────────────────
+// Reviews 2.1 — migrated to <BottomSheet>, same root-cause reasoning as
+// ReviewModal above. ALSO fixes a second real bug: the submit button used
+// to live inside the same scrollable block as the form (long comment text
+// + mobile keyboard could push it out of view, with no guarantee it was
+// reachable). It now lives in BottomSheet's `footer` slot, which is a
+// fixed flex sibling OUTSIDE the scrollable content region (see
+// src/components/ui/BottomSheet.tsx) — never scrolls away, always above
+// BottomNavigation, always safe-area aware. The button submits the form
+// via the standard HTML `form` attribute (same cross-DOM-distance pattern
+// already used for Checkout's sticky CTA) rather than duplicating the
+// submit handler.
 function AddReviewModal({ userName, onClose }: { userName: string; onClose: () => void }) {
     const router = useRouter();
     const [, startTransition] = useTransition();
@@ -177,11 +185,6 @@ function AddReviewModal({ userName, onClose }: { userName: string; onClose: () =
     const [loading, setLoading] = useState(false);
     const [done,    setDone]    = useState(false);
     const [err,     setErr]     = useState("");
-
-    useEffect(() => {
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
 
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -212,237 +215,192 @@ function AddReviewModal({ userName, onClose }: { userName: string; onClose: () =
     };
 
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm md:items-center md:p-4"
-            onClick={onClose}
-        >
-            <div
-                className="relative w-full rounded-t-3xl bg-white px-6 pb-8 pt-6 shadow-2xl md:max-w-md md:rounded-3xl md:p-8"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-stone-200 md:hidden" />
-
+        <BottomSheet
+            open
+            onClose={onClose}
+            title={done ? undefined : "Write a Review"}
+            ariaLabel="Write a review"
+            footer={!done && (
                 <button
-                    onClick={onClose}
-                    aria-label="Close"
-                    className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-xl border border-stone-100 bg-stone-50 text-stone-400 transition-colors hover:bg-stone-100"
+                    type="submit"
+                    form="write-review-form"
+                    disabled={loading}
+                    className="flex w-full items-center justify-center gap-2 rounded-fk-md bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] py-3.5 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                    <X size={15} />
+                    {loading ? <Loader2 size={16} className="animate-spin" /> : <><Send size={14} strokeWidth={2.5} /> Submit Review</>}
                 </button>
-
-                {done ? (
-                    <div className="flex flex-col items-center py-6 text-center">
-                        <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-green-50 border border-green-100">
-                            <CheckCircle2 size={36} className="text-green-500" strokeWidth={1.5} />
-                        </div>
-                        <h3 className="text-2xl font-black text-stone-900">Thank you! 🎉</h3>
-                        <p className="mt-2 text-sm text-stone-500 leading-relaxed">
-                            Your review has been submitted. We truly appreciate your feedback!
-                        </p>
-                        <button
-                            onClick={onClose}
-                            className="mt-6 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-8 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110"
-                        >
-                            Awesome, done!
-                        </button>
+            )}
+        >
+            {done ? (
+                <div className="flex flex-col items-center py-6 text-center">
+                    <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-fk-lg border border-fk-success/30 bg-fk-success/10">
+                        <CheckCircle2 size={32} className="text-fk-success" strokeWidth={1.5} />
                     </div>
-                ) : (
-                    <>
-                        <div className="mb-6">
-                            <div className="flex items-center gap-3 mb-1">
-                                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-amber-400 shadow-md shadow-orange-200">
-                                    <MessageSquarePlus size={18} className="text-white" strokeWidth={2} />
-                                </div>
-                                <div>
-                                    <h3 className="text-xl font-black text-stone-900">Write a Review</h3>
-                                    <p className="text-xs text-stone-400">
-                                        Posting as <span className="font-bold text-stone-600">{userName}</span>
-                                    </p>
-                                </div>
+                    <h3 className="text-xl font-black text-fk-text">Thank you! 🎉</h3>
+                    <p className="mt-2 text-sm leading-relaxed text-fk-text-secondary">
+                        Your review has been submitted. We truly appreciate your feedback!
+                    </p>
+                    <button
+                        onClick={onClose}
+                        className="mt-6 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-8 py-3 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110"
+                    >
+                        Awesome, done!
+                    </button>
+                </div>
+            ) : (
+                <>
+                    <div className="mb-5">
+                        <div className="flex items-center gap-3">
+                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-fk-md bg-gradient-to-br from-[var(--fk-accent)] to-[var(--fk-gold)] shadow-sm">
+                                <MessageSquarePlus size={18} className="text-white" strokeWidth={2} />
                             </div>
-                            <p className="mt-3 text-xs text-stone-400 leading-relaxed">
-                                Your honest words help others decide and help us improve. 💛
+                            <p className="text-xs text-fk-text-tertiary">
+                                Posting as <span className="font-bold text-fk-text-secondary">{userName}</span> — your honest words help other foodies decide.
                             </p>
                         </div>
+                    </div>
 
-                        <form onSubmit={submit} noValidate className="space-y-5">
-                            <div>
-                                <p className="mb-2 text-[11px] font-black uppercase tracking-widest text-stone-400">
-                                    How was your experience? *
-                                </p>
-                                <StarInput
-                                    value={form.rating}
-                                    onChange={(n) => setForm((f) => ({ ...f, rating: n }))}
-                                />
+                    <form id="write-review-form" onSubmit={submit} noValidate className="space-y-5">
+                        <div>
+                            <p className="mb-2 text-[11px] font-black uppercase tracking-widest text-fk-text-tertiary">
+                                How was your experience? *
+                            </p>
+                            <StarInput value={form.rating} onChange={(n) => setForm((f) => ({ ...f, rating: n }))} />
+                        </div>
+
+                        <div>
+                            <p className="mb-1.5 text-[11px] font-black uppercase tracking-widest text-fk-text-tertiary">
+                                Tell us more *
+                            </p>
+                            <textarea
+                                value={form.comment}
+                                onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
+                                placeholder="How was the food, delivery, taste? Tell us honestly…"
+                                rows={4}
+                                maxLength={500}
+                                aria-invalid={!!err}
+                                className="w-full resize-none rounded-fk-md border border-fk-border bg-fk-surface-interactive px-4 py-3 text-sm text-fk-text placeholder:text-fk-text-tertiary transition-all focus:border-[var(--fk-accent)] focus:bg-fk-surface-elevated focus:outline-none focus:ring-2 focus:ring-[var(--fk-accent)]/15"
+                            />
+                            <p className="mt-1 text-right text-[10px] text-fk-text-tertiary">{form.comment.length}/500</p>
+                        </div>
+
+                        {err && (
+                            <div role="alert" className="rounded-fk-md border border-fk-danger/30 bg-fk-danger/10 px-4 py-2.5 text-xs font-semibold text-fk-danger">
+                                {err}
                             </div>
-
-                            <div>
-                                <p className="mb-1.5 text-[11px] font-black uppercase tracking-widest text-stone-400">
-                                    Tell us more *
-                                </p>
-                                <textarea
-                                    value={form.comment}
-                                    onChange={(e) => setForm((f) => ({ ...f, comment: e.target.value }))}
-                                    placeholder="How was the food, delivery, taste? Tell us honestly…"
-                                    rows={4}
-                                    maxLength={500}
-                                    className="w-full resize-none rounded-2xl border border-amber-200 bg-amber-50/40 px-4 py-3 text-sm text-stone-700 placeholder:text-stone-400 focus:border-orange-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-orange-100 transition-all"
-                                />
-                                <p className="mt-1 text-right text-[10px] text-stone-400">
-                                    {form.comment.length}/500
-                                </p>
-                            </div>
-
-                            {err && (
-                                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-semibold text-red-600">
-                                    {err}
-                                </div>
-                            )}
-
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 py-3.5 text-sm font-black text-white shadow-lg shadow-orange-200 transition-all hover:brightness-110 disabled:opacity-60"
-                            >
-                                {loading
-                                    ? <Loader2 size={16} className="animate-spin" />
-                                    : <><Send size={14} strokeWidth={2.5} /> Submit My Review</>
-                                }
-                            </button>
-                        </form>
-                    </>
-                )}
-            </div>
-        </div>
+                        )}
+                    </form>
+                </>
+            )}
+        </BottomSheet>
     );
 }
 
 // ─── Login nudge modal ────────────────────────────────────────────────────
 function LoginNudgeModal({ onClose }: { onClose: () => void }) {
-    useEffect(() => {
-        document.body.style.overflow = "hidden";
-        return () => { document.body.style.overflow = ""; };
-    }, []);
-
     return (
-        <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm md:items-center md:p-4"
-            onClick={onClose}
-        >
-            <div
-                className="relative w-full rounded-t-3xl bg-white px-6 pb-8 pt-6 text-center shadow-2xl md:max-w-sm md:rounded-3xl md:p-8"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-stone-200 md:hidden" />
-
-                <button
-                    onClick={onClose}
-                    aria-label="Close"
-                    className="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-xl border border-stone-100 bg-stone-50 text-stone-400 transition-colors hover:bg-stone-100"
-                >
-                    <X size={15} />
-                </button>
-
-                <div className="mb-4 mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100">
-                    <Lock size={30} className="text-amber-500" strokeWidth={1.8} />
+        <BottomSheet open onClose={onClose} ariaLabel="Sign in to write a review">
+            <div className="text-center">
+                <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-fk-lg border border-fk-border bg-fk-gold-soft">
+                    <Lock size={28} className="text-fk-gold" strokeWidth={1.8} />
                 </div>
-                <h3 className="text-xl font-black text-stone-900">Join the FoodKnock family 🍕</h3>
-                <p className="mt-2 text-sm text-stone-500 leading-relaxed">
+                <h3 className="text-xl font-black text-fk-text">Join the FoodKnock family 🍕</h3>
+                <p className="mt-2 text-sm leading-relaxed text-fk-text-secondary">
                     Sign in to share your food experience with fellow foodies!
                 </p>
 
                 <div className="mt-6 flex gap-3">
                     <Link
-                        href="/auth"
-                        className="flex flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-orange-500 to-amber-500 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110"
+                        href="/auth?mode=login"
+                        className="flex flex-1 items-center justify-center gap-2 rounded-fk-md bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] py-3 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110"
                     >
-                        <LogIn size={14} strokeWidth={2.5} />
-                        Sign In
+                        <LogIn size={14} strokeWidth={2.5} /> Sign In
                     </Link>
                     <button
                         onClick={onClose}
-                        className="flex-1 rounded-2xl border border-stone-200 bg-stone-50 py-3 text-sm font-semibold text-stone-500 transition-all hover:bg-stone-100 hover:text-stone-700"
+                        className="flex-1 rounded-fk-md border border-fk-border bg-fk-surface-selected py-3 text-sm font-semibold text-fk-text-secondary transition-all hover:bg-fk-surface-interactive"
                     >
                         Maybe later
                     </button>
                 </div>
             </div>
-        </div>
+        </BottomSheet>
     );
 }
 
-// ─── Single review card ───────────────────────────────────────────────────
-function ReviewCard({
-    review, idx, onExpand,
-}: {
-    review: PublicReview;
-    idx: number;
-    onExpand: () => void;
-}) {
+// ─── Single review card — real fields only ────────────────────────────────
+// No "Verified" badge — src/models/Review.ts has no purchase/order
+// linkage, so there is no real signal to back that claim with. See file
+// header comment.
+function ReviewCard({ review, idx, onExpand }: { review: PublicReview; idx: number; onExpand: () => void }) {
     const [from, to] = getGrad(idx);
     const { preview, isTruncated } = truncateWords(review.comment);
 
     return (
-        <article className="group flex flex-col rounded-3xl border border-amber-100 bg-white p-5 shadow-sm transition-all duration-200 hover:border-orange-200 hover:shadow-lg hover:shadow-orange-100/60">
-
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-3">
+        // Reviews 2.2 — redesigned for 2-column mobile (spec: mobile MUST
+        // show 2 columns, so cards are now genuinely narrow — ~155-185px at
+        // 360-412px viewports — not a shrunk single-column desktop card).
+        // Avatar+name on row 1, time+stars on row 2 (stars no longer forced
+        // onto the same cramped row as the name) — matches the spec's own
+        // mobile mockup. `min-h` + flex + a reserved bottom slot (same
+        // reasoning as before) keep every card the same footprint
+        // regardless of comment length.
+        <article className="flex h-full min-h-[146px] flex-col rounded-fk-md border border-fk-border bg-fk-surface-elevated p-3 shadow-sm transition-all duration-150 motion-reduce:transition-none hover:border-[var(--fk-accent)]/30 hover:shadow-md sm:min-h-[168px] sm:rounded-fk-lg sm:p-4">
+            <div className="flex items-center gap-2">
                 <div
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl text-sm font-black text-white shadow-md"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-fk-sm text-xs font-black text-white shadow-sm sm:h-10 sm:w-10 sm:rounded-fk-md sm:text-sm"
                     style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}
+                    aria-hidden="true"
                 >
                     {initials(review.userName)}
                 </div>
-                <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-black text-stone-900">{review.userName}</p>
-                    <p className="text-[10px] font-semibold text-stone-400">{timeAgo(review.createdAt)}</p>
-                </div>
-                <div className="shrink-0">
-                    <Stars rating={review.rating} size={11} />
-                </div>
+                <p className="min-w-0 flex-1 truncate text-[13px] font-black text-fk-text sm:text-sm">{review.userName}</p>
             </div>
 
-            {/* Comment */}
-            <div className="flex-1">
-                <p className="text-[13px] leading-6 text-stone-600">{preview}</p>
+            <div className="mt-1.5 flex items-center justify-between gap-2">
+                <span className="truncate text-[10px] font-semibold text-fk-text-tertiary">{timeAgo(review.createdAt)}</span>
+                <Stars rating={review.rating} size={14} />
+            </div>
+
+            <p className="mt-2 flex-1 text-[12.5px] leading-5 text-fk-text-secondary sm:text-[13px] sm:leading-6">{preview}</p>
+
+            <div className="mt-1 h-4 sm:h-5">
                 {isTruncated && (
                     <button
                         onClick={onExpand}
-                        className="mt-1.5 flex items-center gap-0.5 text-[12px] font-bold text-orange-500 transition-colors hover:text-orange-600"
+                        className="flex items-center gap-0.5 text-[10.5px] font-bold text-[var(--fk-accent)] transition-colors hover:brightness-110 sm:text-[12px]"
                     >
-                        Read more <ChevronRight size={12} strokeWidth={2.5} />
+                        Read more <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" />
                     </button>
                 )}
-            </div>
-
-            {/* Footer */}
-            <div className="mt-4 flex items-center justify-between border-t border-amber-50 pt-3">
-                <span className="rounded-full border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-[10px] font-bold text-amber-600">
-                    ★ {review.rating}.0
-                </span>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-stone-300">
-                    Verified
-                </span>
             </div>
         </article>
     );
 }
 
 // ─── Empty state ──────────────────────────────────────────────────────────
-function EmptyState({ onWrite }: { onWrite: () => void }) {
+// No loading skeleton gates this — `reviews` arrives fully resolved via
+// SSR (src/app/(main)/reviews/page.tsx is a server component), so by the
+// time this component mounts, "zero reviews" is already a known, final
+// fact, not a pending fetch. A skeleton here would falsely imply more
+// data might still arrive.
+function EmptyState({ onWrite, disabled }: { onWrite: () => void; disabled: boolean }) {
     return (
-        <div className="flex flex-col items-center justify-center rounded-3xl border border-amber-100 bg-white px-6 py-20 text-center shadow-sm">
-            <div className="mb-5 text-6xl">🌟</div>
-            <h3 className="text-xl font-black text-stone-900">Be the first to review!</h3>
-            <p className="mt-2 max-w-xs text-sm text-stone-500 leading-relaxed">
-                No reviews yet — but that&apos;s about to change. Tried our food? Tell the world!
+        <div className="flex flex-col items-center justify-center rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-6 py-16 text-center shadow-sm">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-fk-lg bg-fk-gold-soft">
+                <Star size={26} className="text-fk-gold" aria-hidden="true" />
+            </div>
+            <h3 className="text-lg font-black text-fk-text">No reviews yet</h3>
+            <p className="mt-1.5 max-w-xs text-sm leading-relaxed text-fk-text-secondary">
+                FoodKnock&apos;s first review could be yours.
             </p>
             <button
                 onClick={onWrite}
-                className="mt-6 flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-7 py-3 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 active:scale-95"
+                disabled={disabled}
+                className="mt-6 flex items-center gap-2 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-6 py-3 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
             >
                 <MessageSquarePlus size={15} strokeWidth={2.5} />
-                Write First Review
+                Share Your Experience
             </button>
         </div>
     );
@@ -453,7 +411,7 @@ const INITIAL_COUNT = 9;
 const LOAD_MORE_COUNT = 6;
 
 // ─── Main exported component ──────────────────────────────────────────────
-export default function ReviewsGrid({ reviews }: { reviews: PublicReview[] }) {
+export default function ReviewsGrid({ reviews, totalApproved }: { reviews: PublicReview[]; totalApproved: number }) {
     const [expanded,     setExpanded]     = useState<{ review: PublicReview; idx: number } | null>(null);
     const [showAdd,      setShowAdd]      = useState(false);
     const [showLogin,    setShowLogin]    = useState(false);
@@ -475,64 +433,110 @@ export default function ReviewsGrid({ reviews }: { reviews: PublicReview[] }) {
         else              setShowLogin(true);
     };
 
+    const hasReviews = reviews.length > 0;
+    const avgNum = hasReviews ? reviews.reduce((s, r) => s + r.rating, 0) / reviews.length : 0;
+    const avgRating = avgNum.toFixed(1);
+    const breakdown = [5, 4, 3, 2, 1].map((star) => {
+        const count = reviews.filter((r) => r.rating === star).length;
+        return { star, pct: hasReviews ? Math.round((count / reviews.length) * 100) : 0, count };
+    });
+
     const visibleReviews = reviews.slice(0, visibleCount);
     const hasMore        = visibleCount < reviews.length;
     const remaining      = reviews.length - visibleCount;
 
     return (
         <>
-            {/* Modals */}
-            {expanded && (
-                <ReviewModal
-                    review={expanded.review}
-                    idx={expanded.idx}
-                    onClose={() => setExpanded(null)}
-                />
-            )}
-            {showAdd && loggedUser && (
-                <AddReviewModal userName={loggedUser} onClose={() => setShowAdd(false)} />
-            )}
-            {showLogin && (
-                <LoginNudgeModal onClose={() => setShowLogin(false)} />
-            )}
+            {expanded && <ReviewModal review={expanded.review} idx={expanded.idx} onClose={() => setExpanded(null)} />}
+            {showAdd && loggedUser && <AddReviewModal userName={loggedUser} onClose={() => setShowAdd(false)} />}
+            {showLogin && <LoginNudgeModal onClose={() => setShowLogin(false)} />}
 
-            {/* ── Grid section ── */}
-            <section className="mx-auto max-w-7xl px-4 py-12 md:px-8">
+            {/* Reviews 2.2 — layout correction. The previous "0.8fr sidebar +
+                1.6fr feed" grid left a tall empty gap under the (compact)
+                summary card whenever the feed grew taller than it — a
+                sidebar fundamentally doesn't grow to match adjacent content.
+                Replaced with a single-column page flow: one WIDE overview
+                bar (uses the full content width — no more lonely sidebar),
+                then a review grid that spans the whole width too. Nothing
+                about the real numbers changed, only how they're arranged. */}
+            <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-8 md:py-8">
 
-                {/* Section header */}
-                <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-orange-500 mb-1">
-                            Testimonials
-                        </p>
-                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl">
-                            Fresh from our customers
-                        </h2>
-                    </div>
-
-                    <div className="flex shrink-0 items-center gap-3">
-                        {reviews.length > 0 && (
-                            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                                {reviews.length} reviews
-                            </span>
+                {/* ── Wide rating overview — avg | distribution | CTA ── */}
+                <div className="rounded-fk-lg border border-fk-border bg-fk-surface-elevated p-4 shadow-sm sm:p-5">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-6">
+                        {hasReviews ? (
+                            <div className="flex shrink-0 items-center gap-4">
+                                <div>
+                                    <p className="text-3xl font-black leading-none text-fk-text">{avgRating}</p>
+                                    <p className="mt-0.5 text-[10px] font-semibold text-fk-text-tertiary">out of 5</p>
+                                </div>
+                                <div>
+                                    <Stars rating={Math.round(avgNum)} size={14} />
+                                    <p className="mt-1 text-[11px] font-semibold text-fk-text-tertiary">
+                                        {totalApproved} review{totalApproved !== 1 ? "s" : ""}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex shrink-0 items-center gap-3">
+                                <Star size={22} className="text-fk-gold" aria-hidden="true" />
+                                <div>
+                                    <p className="text-sm font-bold text-fk-text">No ratings yet</p>
+                                    <p className="text-[11px] text-fk-text-tertiary">Be the first to share your experience.</p>
+                                </div>
+                            </div>
                         )}
+
+                        {/* Distribution — now uses the full available width
+                            instead of being squeezed into a narrow sidebar. */}
+                        {hasReviews ? (
+                            <div className="min-w-0 flex-1 space-y-1">
+                                {breakdown.map(({ star, pct, count }) => (
+                                    <div key={star} className="flex items-center gap-2">
+                                        <span className="w-2 shrink-0 text-right text-[10px] font-black text-fk-text-secondary">{star}</span>
+                                        <Star size={8} className="shrink-0 fill-[var(--fk-accent)] text-[var(--fk-accent)]" aria-hidden="true" />
+                                        <div className="h-1 flex-1 overflow-hidden rounded-full border border-fk-border bg-fk-surface-interactive">
+                                            <div
+                                                className="h-full rounded-full bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] transition-all duration-500 motion-reduce:transition-none"
+                                                style={{ width: `${pct}%` }}
+                                            />
+                                        </div>
+                                        <span className="w-4 shrink-0 text-right text-[9px] font-semibold text-fk-text-tertiary">{count}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="min-w-0 flex-1" />
+                        )}
+
                         <button
                             onClick={handleAddClick}
                             disabled={!authChecked}
-                            className="flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 hover:shadow-lg disabled:opacity-60 active:scale-95"
+                            className="flex w-full shrink-0 items-center justify-center gap-2 rounded-fk-md bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-5 py-2.5 text-[13px] font-black text-white shadow-fk-sm transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 lg:w-auto"
                         >
-                            <MessageSquarePlus size={14} strokeWidth={2.5} />
-                            Write a Review
+                            <MessageSquarePlus size={15} strokeWidth={2.5} aria-hidden="true" />
+                            Share Your Experience
                         </button>
                     </div>
                 </div>
 
-                {/* Reviews grid */}
-                {reviews.length === 0 ? (
-                    <EmptyState onWrite={handleAddClick} />
+                {/* ── Section header ── */}
+                <div className="mb-3 mt-5 flex items-center justify-between">
+                    <h2 className="text-base font-black text-fk-text">Customer Reviews</h2>
+                    {hasReviews && (
+                        <span className="rounded-fk-pill border border-fk-border bg-fk-surface-selected px-3 py-1 text-[11px] font-bold text-fk-text-secondary">
+                            {totalApproved} review{totalApproved !== 1 ? "s" : ""}
+                        </span>
+                    )}
+                </div>
+
+                {/* ── Review feed — full page width, 2 cols mobile/tablet,
+                    3 cols desktop (spec: mobile MUST be 2 columns, not 1) ── */}
+                {!hasReviews ? (
+                    <EmptyState onWrite={handleAddClick} disabled={!authChecked} />
                 ) : (
                     <>
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:gap-5 lg:grid-cols-3">
+                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 lg:gap-4">
                             {visibleReviews.map((review, i) => (
                                 <ReviewCard
                                     key={review._id}
@@ -543,107 +547,25 @@ export default function ReviewsGrid({ reviews }: { reviews: PublicReview[] }) {
                             ))}
                         </div>
 
-                        {/* ── Load More ── */}
                         {hasMore && (
-                            <div className="mt-10 flex flex-col items-center gap-3">
-                                {/* Progress indicator */}
-                                <div className="flex items-center gap-3 text-xs text-stone-400">
-                                    <div className="h-px w-16 bg-amber-100" />
-                                    <span className="font-semibold">
-                                        Showing <span className="font-black text-stone-600">{visibleCount}</span> of{" "}
-                                        <span className="font-black text-stone-600">{reviews.length}</span> reviews
-                                    </span>
-                                    <div className="h-px w-16 bg-amber-100" />
-                                </div>
-
-                                {/* Progress bar */}
-                                <div className="h-1.5 w-48 overflow-hidden rounded-full bg-amber-100">
-                                    <div
-                                        className="h-full rounded-full bg-gradient-to-r from-orange-500 to-amber-400 transition-all duration-500"
-                                        style={{ width: `${(visibleCount / reviews.length) * 100}%` }}
-                                    />
-                                </div>
-
+                            <div className="mt-6 flex justify-center">
                                 <button
                                     onClick={() => setVisibleCount((c) => c + LOAD_MORE_COUNT)}
-                                    className="mt-1 flex items-center gap-2 rounded-full border-2 border-amber-200 bg-white px-7 py-3 text-sm font-black text-amber-700 shadow-sm transition-all duration-200 hover:border-orange-400 hover:bg-orange-50 hover:text-orange-600 hover:shadow-md hover:shadow-orange-100 active:scale-95"
+                                    className="flex items-center gap-2 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-6 py-3 text-sm font-bold text-fk-text-secondary shadow-sm transition-all hover:border-[var(--fk-accent)]/40 hover:text-[var(--fk-accent)] active:scale-95"
                                 >
                                     Load {Math.min(remaining, LOAD_MORE_COUNT)} more reviews
-                                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 text-[10px] font-black text-amber-700">
-                                        +{Math.min(remaining, LOAD_MORE_COUNT)}
-                                    </span>
                                 </button>
                             </div>
                         )}
 
-                        {/* All loaded state */}
                         {!hasMore && reviews.length > INITIAL_COUNT && (
-                            <div className="mt-10 flex flex-col items-center gap-2">
-                                <div className="flex items-center gap-3 text-xs text-stone-400">
-                                    <div className="h-px w-16 bg-amber-100" />
-                                    <span className="font-semibold text-stone-400">
-                                        All {reviews.length} reviews loaded ✓
-                                    </span>
-                                    <div className="h-px w-16 bg-amber-100" />
-                                </div>
-                                <button
-                                    onClick={handleAddClick}
-                                    className="mt-2 flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-2.5 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 active:scale-95"
-                                >
-                                    <MessageSquarePlus size={13} strokeWidth={2.5} />
-                                    Add yours too!
-                                </button>
-                            </div>
+                            <p className="mt-6 text-center text-xs font-semibold text-fk-text-tertiary">
+                                You&apos;re all caught up — all {reviews.length} loaded reviews shown.
+                            </p>
                         )}
                     </>
                 )}
-            </section>
-
-            {/* ── Bottom CTA ─────────────────────────────────────────────── */}
-            <section className="mx-auto max-w-7xl px-4 pb-14 md:px-8">
-                <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-orange-500 via-amber-500 to-yellow-400 p-8 md:p-10">
-                    {/* Texture overlay */}
-                    <div
-                        className="pointer-events-none absolute inset-0 opacity-[0.07]"
-                        style={{
-                            backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)",
-                            backgroundSize: "20px 20px",
-                        }}
-                    />
-                    {/* Glow blob */}
-                    <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-white/20 blur-2xl" />
-
-                    <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-                        <div>
-                            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-white/70 mb-1">
-                                Your voice matters 💛
-                            </p>
-                            <h3 className="text-xl font-black text-white md:text-2xl">
-                                Loved your order? Share it!
-                            </h3>
-                            <p className="mt-1.5 text-sm text-white/80 leading-relaxed max-w-md">
-                                Your honest review helps other foodies discover our best dishes — and helps us serve you even better.
-                            </p>
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap gap-3">
-                            <button
-                                onClick={handleAddClick}
-                                className="inline-flex items-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-black text-orange-600 shadow-lg shadow-orange-700/20 transition-all hover:bg-orange-50 active:scale-95"
-                            >
-                                <MessageSquarePlus size={15} strokeWidth={2.5} />
-                                Write a Review
-                            </button>
-                            <Link
-                                href="/menu"
-                                className="inline-flex items-center gap-2 rounded-full border-2 border-white/40 bg-white/10 px-6 py-3 text-sm font-bold text-white backdrop-blur-sm transition-all hover:bg-white/20 hover:border-white/60"
-                            >
-                                Explore Menu
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </section>
+            </div>
         </>
     );
 }

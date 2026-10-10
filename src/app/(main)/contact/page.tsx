@@ -17,13 +17,13 @@ export const metadata: Metadata = {
     },
 };
 
-import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
+import { KITCHEN_HOURS, SUPPORT_HOURS as SHARED_SUPPORT_HOURS } from "@/lib/businessHours";
 import {
-    Mail, ArrowRight, Flame, Zap, ShieldCheck, Star,
+    Mail, ArrowRight, Zap, ShieldCheck, Star,
     UtensilsCrossed, Heart, MessageCircle, Phone,
-    Clock3, BadgeCheck, Headphones, Package,
-    Building2, ChevronRight, Sparkles, ThumbsUp,
+    Clock3, BadgeCheck, Headphones,
+    Building2, ThumbsUp,
 } from "lucide-react";
 
 const CONTACT_EMAIL = "foodknock20@gmail.com";
@@ -145,9 +145,20 @@ const PROMISES = [
 ];
 
 // ─── Support hours ─────────────────────────────────────────────────────────
+// CRITICAL FINAL FIX / founders+contact redesign phase — these two rows
+// used to be a hardcoded local copy of the exact numbers src/lib/
+// businessHours.ts now exists specifically to own (created when an earlier
+// phase found OfferBanner/Footer displaying the WhatsApp *support* window
+// as if it were the kitchen's real ordering hours — see that file's header
+// for the full trace). This page's own numbers happened to already match
+// because they were the original source those shared constants were taken
+// from, but a local, duplicated copy is exactly the drift risk that file
+// was built to eliminate. Now reading from it directly instead of
+// restating it, so Contact can never silently diverge from Footer/
+// OfferBanner again.
 const SUPPORT_HOURS = [
-    { channel: "WhatsApp", hours: "9:00 AM – 9:00 PM", days: "Every day", note: "Fastest replies" },
-    { channel: "Phone / Call", hours: "10:00 AM – 8:00 PM", days: "Every day", note: "During kitchen hours" },
+    { channel: "WhatsApp", hours: SHARED_SUPPORT_HOURS.whatsapp.label, days: SHARED_SUPPORT_HOURS.whatsapp.days, note: "Fastest replies" },
+    { channel: "Phone / Call", hours: KITCHEN_HOURS.label, days: KITCHEN_HOURS.days, note: "During kitchen hours" },
     { channel: "Email", hours: "Any time", days: "24 / 7", note: "Reply within 24 hrs" },
     { channel: "Business Enquiries", hours: "10:00 AM – 6:00 PM", days: "Mon – Sat", note: "Partnerships & bulk" },
 ];
@@ -167,7 +178,6 @@ const TOPICS = [
 export default function ContactPage() {
     return (
         <>
-            <Navbar />
             <main className="min-h-screen bg-[#FFFBF5]">
 
                 {/* ══════════════════════════════════════════
@@ -200,16 +210,16 @@ export default function ContactPage() {
                         aria-hidden="true"
                     />
 
-                    <div className="relative mx-auto max-w-7xl px-4 pb-14 pt-12 md:px-8 md:pb-18 md:pt-16">
+                    <div className="relative mx-auto max-w-7xl px-4 pb-8 pt-8 md:px-8 md:pb-10 md:pt-10">
                         {/* Eyebrow */}
-                        <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5">
+                        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5">
                             <Headphones size={12} className="text-orange-500" strokeWidth={2.5} />
                             <span className="text-[11px] font-black uppercase tracking-[0.24em] text-orange-600">
                                 Support Center
                             </span>
                         </div>
 
-                        <h1 className="max-w-4xl text-4xl font-black leading-[1.08] text-stone-900 md:text-5xl lg:text-6xl">
+                        <h1 className="max-w-4xl text-3xl font-black leading-[1.1] text-stone-900 md:text-4xl lg:text-5xl">
                             Need help with your{" "}
                             <span
                                 className="bg-clip-text text-transparent"
@@ -219,12 +229,12 @@ export default function ContactPage() {
                             </span>
                         </h1>
 
-                        <p className="mt-5 max-w-2xl text-base leading-relaxed text-stone-500 md:text-lg">
+                        <p className="mt-3 max-w-2xl text-[15px] leading-relaxed text-stone-500 md:text-base">
                             FoodKnock customer care is always ready to help with orders, payments, loyalty rewards, partnerships and feedback. Real people, real answers — fast.
                         </p>
 
                         {/* Quick action row */}
-                        <div className="mt-7 flex flex-wrap gap-3">
+                        <div className="mt-5 flex flex-wrap gap-3">
                             <a
                                 href={WHATSAPP_LINK}
                                 target="_blank"
@@ -249,7 +259,7 @@ export default function ContactPage() {
                                 { icon: Zap, text: "Instant WhatsApp Reply" },
                                 { icon: BadgeCheck, text: "Order Guaranteed" },
                                 { icon: Heart, text: "Human Support, No Bots" },
-                                { icon: Star, text: "4.9★ Customer Rating" },
+                                { icon: Star, text: "Locally Made in Danta, Sikar" },
                             ].map(({ icon: Icon, text }) => (
                                 <div key={text} className="flex items-center gap-1.5 text-[12px] font-bold text-stone-400">
                                     <Icon size={12} className="text-amber-500" strokeWidth={2.5} />
@@ -266,7 +276,7 @@ export default function ContactPage() {
                 <section className="mx-auto max-w-7xl px-4 py-10 md:px-8 md:py-14">
                     <div className="mb-8 text-center">
                         <p className="mb-1 text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Get in Touch</p>
-                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl">Choose how you'd like to reach us</h2>
+                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl">Choose how you&apos;d like to reach us</h2>
                         <p className="mt-2 text-sm text-stone-500">No waiting rooms, no hold music. Pick what works for you.</p>
                     </div>
 
@@ -352,7 +362,7 @@ export default function ContactPage() {
                             </div>
                             <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-green-500">Availability</p>
                             <h3 className="text-xl font-black text-stone-900">Support Hours</h3>
-                            <p className="mt-1.5 text-sm text-stone-500">We're here every day. Here's the best time to reach each channel.</p>
+                            <p className="mt-1.5 text-sm text-stone-500">We&apos;re here every day. Here&apos;s the best time to reach each channel.</p>
 
                             <div className="mt-5 space-y-0 overflow-hidden rounded-2xl border border-stone-100">
                                 {SUPPORT_HOURS.map(({ channel, hours, days, note }, i) => (
@@ -386,7 +396,7 @@ export default function ContactPage() {
                             </div>
                             <p className="mb-1 text-[10px] font-black uppercase tracking-[0.2em] text-orange-400">Our Promise</p>
                             <h3 className="text-xl font-black text-stone-900">Why customers trust us</h3>
-                            <p className="mt-1.5 text-sm text-stone-500">Support isn't just a feature — it's a core part of how FoodKnock works.</p>
+                            <p className="mt-1.5 text-sm text-stone-500">Support isn&apos;t just a feature — it&apos;s a core part of how FoodKnock works.</p>
 
                             <div className="mt-5 flex-1 space-y-3">
                                 {[
@@ -394,7 +404,6 @@ export default function ContactPage() {
                                     { emoji: "✅", title: "Order issues always resolved", sub: "Wrong item, late delivery, missing food — we fix it, guaranteed." },
                                     { emoji: "👤", title: "Real humans, never bots", sub: "Every message is read and replied to by a real person." },
                                     { emoji: "🔁", title: "Refunds processed promptly", sub: "Eligible refunds are issued quickly without hassle." },
-                                    { emoji: "📊", title: "4.9★ average rating", sub: "Rated by thousands of satisfied customers across our network." },
                                 ].map(({ emoji, title, sub }) => (
                                     <div key={title} className="flex items-start gap-3 rounded-2xl border border-stone-100 bg-stone-50/60 px-4 py-3">
                                         <span className="mt-0.5 shrink-0 text-xl leading-none">{emoji}</span>
@@ -482,10 +491,10 @@ export default function ContactPage() {
                                     💬 Always here for you
                                 </p>
                                 <h2 className="text-2xl font-black text-white md:text-4xl lg:text-5xl">
-                                    We're just a message away.
+                                    We&apos;re just a message away.
                                 </h2>
                                 <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/85 md:text-base">
-                                    Whether it's a question about your order, a reward point query, or you just want to leave feedback — FoodKnock support has you covered, every single day.
+                                    Whether it&apos;s a question about your order, a reward point query, or you just want to leave feedback — FoodKnock support has you covered, every single day.
                                 </p>
                                 <div className="mt-5 flex flex-wrap gap-3">
                                     {[

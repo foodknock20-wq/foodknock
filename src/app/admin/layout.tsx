@@ -1,12 +1,23 @@
 // "use client";
 
 
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { connectDB } from "@/lib/db";
 import User from "@/models/User";
 import { verifyToken } from "@/lib/auth";
 import AdminShell from "@/components/admin/AdminShell";
+
+// Phase 17.2 (F18): previously relied solely on robots.txt's
+// "Disallow: /admin/" to keep this out of search results. robots.txt is
+// advisory (a non-compliant crawler, or a direct link shared externally,
+// simply ignores it) and was never this app's actual access control
+// anyway — that's the DB-backed validateAdminAccess() below, unchanged.
+// This is a belt-and-suspenders SEO/indexing addition only.
+export const metadata: Metadata = {
+    robots: { index: false, follow: false },
+};
 
 // ─── Server-side auth guard ───────────────────────────────────────────────
 async function validateAdminAccess(): Promise<void> {
@@ -16,7 +27,7 @@ async function validateAdminAccess(): Promise<void> {
     // 1. No token → redirect to /auth (middleware should catch this first,
     //    but we double-check here for reliability)
     if (!token) {
-        redirect("/auth?redirect=/admin");
+        redirect("/auth?mode=login&redirect=/admin");
     }
 
     // 2. Verify JWT
@@ -26,11 +37,11 @@ async function validateAdminAccess(): Promise<void> {
         decoded = vt(token) as typeof decoded;
     } catch {
         // Invalid/expired token → clear it and redirect
-        redirect("/auth?redirect=/admin");
+        redirect("/auth?mode=login&redirect=/admin");
     }
 
     if (!decoded?.userId) {
-        redirect("/auth?redirect=/admin");
+        redirect("/auth?mode=login&redirect=/admin");
     }
 
     // 3. DB-backed check: role + isActive
@@ -40,13 +51,13 @@ async function validateAdminAccess(): Promise<void> {
         .lean() as { role: string; isActive: boolean } | null;
 
     if (!user) {
-        redirect("/auth?redirect=/admin");
+        redirect("/auth?mode=login&redirect=/admin");
     }
 
     // 4. Blocked/inactive user
     if (user.isActive === false) {
         // They're blocked — send them away (token stays, they just can't access)
-        redirect("/auth?error=blocked");
+        redirect("/auth?mode=login&error=blocked");
     }
 
     // 5. Not admin

@@ -1,13 +1,127 @@
 @import "tailwindcss";
-@import "./navbar.css";
-
-/* Navbar styles — imported here so Next.js bundles them as a static <link>
-   in <head>, guaranteeing they are present before first paint and
-   eliminating the unstyled-text flash on Navbar. */
 
 :root {
   --background: #fffbf5;
   --foreground: #292524;
+
+  /* ── FoodKnock UI 2.0 — customer design tokens ──────────────────────────
+     Scoped by the --fk- prefix, consumed only by the global customer shell
+     (src/components/shell/**), Home (src/components/home/**), and the
+     src/components/ui/** primitive library. Does NOT touch --admin-*
+     (admin dashboard), which remains untouched.
+
+     LIGHT THEME REWORK: the original Phase 1/2 pass shipped a dark-graphite
+     theme. After reviewing it against real Blinkit-interaction-pattern
+     references, the customer app is now LIGHT — warm cream/white surfaces,
+     FoodKnock orange as the primary action color, a readable gold for
+     loyalty/premium accents, and deep charcoal reserved for text and the
+     few deliberately-dark premium surfaces (Hero/campaign cards — see
+     HeroCarousel.tsx). Token NAMES are unchanged from the dark pass, only
+     VALUES — every component already reads color exclusively through
+     these custom properties, so this one edit re-themes the whole customer
+     app without per-component rewrites. */
+  --fk-bg:                 #fffbf5; /* warm cream page background */
+  --fk-surface:            #ffffff; /* white cards/sheets/inputs/nav */
+  --fk-surface-elevated:   #ffffff; /* elevation now comes from shadow tokens, not color */
+  --fk-surface-interactive:#f0eae0; /* neutral warm-stone hover/skeleton base */
+  --fk-surface-selected:   #fff1e6; /* pale orange — accent-tinted selected/active state */
+  --fk-border:             rgba(28,25,23,0.08);
+  --fk-text:               #1c1917; /* deep charcoal */
+  --fk-text-secondary:     #78716c;
+  --fk-text-tertiary:      #a8a29e;
+  --fk-accent:             #ff5c1a; /* unchanged FoodKnock orange */
+  --fk-accent-hover:       #ff8c42;
+  --fk-gold:               #ca8a04; /* WCAG-readable gold for text/icons on light */
+  --fk-gold-soft:          #fef3c7; /* pale gold fill for badges/chips */
+  --fk-charcoal:           #1c1917; /* the one place dark surfaces are allowed — premium Hero/campaign cards */
+  --fk-charcoal-elevated:  #292524;
+  --fk-success:            #16a34a;
+  --fk-danger:             #dc2626;
+
+  /* Safe-area insets resolved once at :root — consumed via var(--fk-safe-*)
+     by the new shell (BottomNavigation, FloatingCart, BottomSheet, Dialog)
+     instead of each component re-deriving its own calc(Npx + env(...)). */
+  --fk-safe-top:    env(safe-area-inset-top, 0px);
+  --fk-safe-right:  env(safe-area-inset-right, 0px);
+  --fk-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --fk-safe-left:   env(safe-area-inset-left, 0px);
+
+  /* ── Shared fixed-bottom-UI clearance (single source of truth) ─────────
+     GLOBAL FOOTER/LAYOUT FIX — every one of these numbers used to be
+     hand-copied as a literal `62px` across 4 different files
+     (src/app/layout.tsx's page-bottom padding, FloatingCart.tsx,
+     cart/page.tsx's MobileCheckoutBar, checkout/page.tsx's
+     CheckoutStickyBar) — all describing "clear BottomNavigation's own
+     fixed footprint," none of them actually matching it:
+     BottomNavigation.tsx positions itself at `bottom: calc(10px +
+     safe-bottom)` and is itself `h-[66px]` tall, so its real total
+     footprint above the viewport's bottom edge is 10+66 = 76px, not the
+     62px every consumer assumed — a real, measurable 14px shortfall that
+     let BottomNavigation's own top sliver sit on top of the last ~14px of
+     whatever normal-flow content (almost always the shared Footer's
+     bottom legal row) a page reserved only 62px to avoid.
+     --fk-bottom-nav-clearance is that corrected, single number, derived
+     from BottomNavigation's own real geometry (10px gap + 66px height) —
+     every one of the 4 consumers above now reads this var instead of
+     repeating (and risking re-diverging from) a literal pixel value. */
+  --fk-bottom-nav-clearance: calc(10px + 66px); /* = 76px — BottomNavigation's own bottom-inset + height, exactly */
+
+  /* FloatingCart (src/components/shell/FloatingCart.tsx) is a SECOND fixed
+     element that can be visible at the same time as BottomNavigation, on
+     the handful of routes that allow it (Home, /menu, /menu/[slug],
+     /loyalty outside the Spin tab) whenever the cart is non-empty. It
+     floats 10px above --fk-bottom-nav-clearance and is itself ~56px tall
+     (py-2.5 padding + its 36px product-thumbnail row) — real additional
+     reach past the baseline clearance above, consumed by CustomerShell.tsx
+     to reserve the correct EXTRA space after Footer only on the specific
+     routes/cart-states where FloatingCart can actually render, rather than
+     reserving it unconditionally (which would reintroduce unnecessary
+     blank space after Footer on every other route/empty-cart state). */
+  --fk-floating-cart-extra-clearance: calc(10px + 56px); /* = 66px — FloatingCart's own gap + height, beyond the baseline above */
+
+  /* CART + CHECKOUT PREMIUM LAYOUT FIX — /cart's MobileCheckoutBar and
+     /checkout's CheckoutStickyBar are a THIRD kind of fixed element that
+     stacks above --fk-bottom-nav-clearance, on the two routes where
+     FloatingCart itself is hidden (CustomerShell.tsx's hideFloatingCart)
+     and replaced by one of these page-local sticky action bars instead,
+     whenever the cart is non-empty. Real geometry: both sit `bottom:
+     calc(var(--fk-bottom-nav-clearance) + var(--fk-safe-bottom) + 8px)`;
+     MobileCheckoutBar's own rendered height is ~66px (px-4 py-3 container
+     + its py-3.5 checkout button), CheckoutStickyBar's is ~68px (px-3.5
+     py-2.5 container + its h-12/48px compact PayBtn) — so each needs
+     ~74–76px of real additional reach beyond the baseline above; this is
+     the single, shared, derived value for both (rounded to the taller of
+     the two, 76px, rather than two near-duplicate literals), consumed by
+     BOTH CustomerShell.tsx (to reserve the correct extra space after
+     Footer only while one of these bars can actually render) AND by
+     cart/page.tsx + checkout/page.tsx's own inner content padding (which
+     already existed as hardcoded, safe-area-blind literals — `pb-[152px]`
+     and `pb-[150px]` — before this fix; both numbers already matched this
+     derivation almost exactly, confirming it, but neither added
+     --fk-safe-bottom, a real gap on devices with a bottom safe-area
+     inset). Deliberately does NOT re-add --fk-safe-bottom itself (the
+     baseline clearance above already accounts for the device safe-area
+     once; callers add it, at most, once of their own). */
+  --fk-sticky-actionbar-extra-clearance: calc(8px + 68px); /* = 76px — the taller of MobileCheckoutBar's (~74px) and CheckoutStickyBar's (~76px) own gap + height, beyond the baseline above */
+
+  /* ── FoodKnock Operations — Admin design tokens (Phase 15E.5) ──────────
+     Scoped by the --admin- prefix only (not consumed by any customer-facing
+     component) so these can live at :root without touching the cream
+     customer theme above. Admin components should reference these
+     semantic names instead of ad-hoc stone-NNN/amber-NNN literals going
+     forward — see src/lib/adminUi.ts for the matching className helpers. */
+  --admin-bg:            #09090f; /* page background — warm near-black, not blue-black */
+  --admin-surface:       #111118; /* card/table surface */
+  --admin-surface-raised:#15151f; /* modals, popovers, hovered surface */
+  --admin-border:        rgba(255,255,255,0.06);
+  --admin-text:          #e7e5e4; /* stone-200 — primary readable text */
+  --admin-text-muted:    #a8a29e; /* stone-400 — secondary text, still clearly readable */
+  --admin-text-subtle:   #78716c; /* stone-500 — de-emphasized labels/metadata only, never button text */
+  --admin-accent:        #f59e0b; /* amber-500 */
+  --admin-accent-hover:  #fbbf24; /* amber-400 */
+  --admin-success:       #10b981; /* emerald-500 */
+  --admin-warning:       #f59e0b; /* amber-500 */
+  --admin-danger:        #f43f5e; /* rose-500 */
 }
 
 @theme inline {
@@ -15,6 +129,122 @@
   --color-foreground: var(--foreground);
   --font-sans: Arial, Helvetica, sans-serif;
   --font-mono: monospace;
+  --font-display: var(--font-playfair), Georgia, serif;
+
+  /* FoodKnock UI 2.0 shell tokens → Tailwind utilities (bg-fk-surface,
+     text-fk-text, border-fk-border, rounded-fk-lg, etc.) */
+  --color-fk-bg: var(--fk-bg);
+  --color-fk-surface: var(--fk-surface);
+  --color-fk-surface-elevated: var(--fk-surface-elevated);
+  --color-fk-surface-interactive: var(--fk-surface-interactive);
+  --color-fk-surface-selected: var(--fk-surface-selected);
+  --color-fk-border: var(--fk-border);
+  --color-fk-text: var(--fk-text);
+  --color-fk-text-secondary: var(--fk-text-secondary);
+  --color-fk-text-tertiary: var(--fk-text-tertiary);
+  --color-fk-accent: var(--fk-accent);
+  --color-fk-accent-hover: var(--fk-accent-hover);
+  --color-fk-gold: var(--fk-gold);
+  --color-fk-gold-soft: var(--fk-gold-soft);
+  --color-fk-charcoal: var(--fk-charcoal);
+  --color-fk-charcoal-elevated: var(--fk-charcoal-elevated);
+  --color-fk-success: var(--fk-success);
+  --color-fk-danger: var(--fk-danger);
+
+  --radius-fk-sm: 10px;
+  --radius-fk-md: 14px;
+  --radius-fk-lg: 22px;
+  --radius-fk-pill: 999px;
+
+  /* Soft, warm-tinted shadows for the light theme — replace the heavy
+     black/40–50 drop-shadows that were tuned for dark surfaces. */
+  --shadow-fk-sm: 0 1px 3px rgba(28,25,23,0.08);
+  --shadow-fk-md: 0 4px 16px rgba(28,25,23,0.10);
+  --shadow-fk-lg: 0 12px 32px rgba(28,25,23,0.14);
+}
+
+/* FoodKnock UI 2.0 — shared shimmer primitive for src/components/ui/Skeleton.tsx.
+   Registered once globally (rather than per-component <style jsx>) so every
+   new skeleton reuses the same keyframes. Does not touch the existing
+   bespoke .fk-s (menu/loading.tsx) / .sk-shimmer ((main)/loading.tsx)
+   route-level skeletons, which are left exactly as-is this phase. */
+@keyframes fk-skeleton-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(220%); }
+}
+.fk-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--fk-surface-interactive);
+}
+.fk-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  /* Light theme: the sweep must be LIGHTER than the warm-stone base to read
+     as a shine (the original 0.08 opacity was tuned for a dark base, where
+     it showed as a faint highlight — on a light base it would be nearly
+     invisible). */
+  background: linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.9) 50%, transparent 80%);
+  animation: fk-skeleton-sweep 1.75s cubic-bezier(0.4,0,0.6,1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fk-skeleton::after {
+    animation: none;
+  }
+}
+
+/* FoodKnock UI 2.0 — shared horizontal-rail scrollbar language, used by
+   every Home product rail (src/components/home/ProductRail.tsx) so the
+   styling lives in exactly one place instead of being duplicated per
+   component. Replaces the previous `.no-scrollbar` (which hid the
+   scrollbar entirely — on desktop that left the rail with no visual cue
+   that it scrolls at all, reading as "unfinished"). Subtle, warm-toned,
+   present (not transparent) at every breakpoint so the rail always reads
+   as "intentionally scrollable" — just thinner/quieter on touch, a touch
+   more present with a mouse. Uses only existing --fk-* tokens: the pale
+   --fk-gold-soft fill for the track, --fk-gold for the resting thumb,
+   --fk-accent (FoodKnock orange) on hover — never a new color.
+   Never the raw browser-default grey/blue scrollbar, never thick/dominant. */
+.fk-rail-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fk-gold) var(--fk-gold-soft);
+}
+
+/* Mobile (default) — quiet, touch scrolling is the primary affordance;
+   this is just a confirming hint, not a control surface. */
+.fk-rail-scroll::-webkit-scrollbar {
+  height: 3px;
+}
+.fk-rail-scroll::-webkit-scrollbar-track {
+  background: var(--fk-gold-soft);
+  border-radius: 999px;
+}
+.fk-rail-scroll::-webkit-scrollbar-thumb {
+  background-color: var(--fk-gold);
+  border-radius: 999px;
+  transition: background-color 180ms ease-out;
+}
+
+/* Tablet — intermediate presence. */
+@media (min-width: 640px) {
+  .fk-rail-scroll::-webkit-scrollbar {
+    height: 4px;
+  }
+}
+
+/* Desktop / mouse-and-trackpad input — a mouse-driven rail benefits from a
+   more visible, grabbable thumb; the hover state is the one deliberate
+   "slightly stronger" color change (warm gold → FoodKnock orange), never a
+   dramatic shift. */
+@media (hover: hover) and (pointer: fine) {
+  .fk-rail-scroll::-webkit-scrollbar {
+    height: 5px;
+  }
+  .fk-rail-scroll:hover::-webkit-scrollbar-thumb,
+  .fk-rail-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: var(--fk-accent);
+  }
 }
 
 *,

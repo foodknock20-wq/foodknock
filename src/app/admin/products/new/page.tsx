@@ -6,8 +6,10 @@ export const dynamic = "force-dynamic";
 import ProductForm from "@/components/admin/products/ProductForm";
 import Link from "next/link";
 import { ArrowLeft, Plus, Sparkles } from "lucide-react";
+import { getDistinctCategories } from "@/lib/catalogCategories";
 
-export default function NewProductPage() {
+export default async function NewProductPage() {
+    const categories = await getDistinctCategories();
     return (
         <div className="pb-10">
             {/* ── Page Header ── */}
@@ -15,7 +17,7 @@ export default function NewProductPage() {
                 {/* Back nav */}
                 <Link
                     href="/admin/products"
-                    className="group mb-5 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-stone-600 transition-all hover:text-amber-400"
+                    className="group mb-5 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-stone-400 transition-all hover:text-amber-400"
                 >
                     <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] transition-all group-hover:border-amber-500/25 group-hover:bg-amber-500/[0.08]">
                         <ArrowLeft size={11} className="transition-transform group-hover:-translate-x-0.5" />
@@ -54,7 +56,7 @@ export default function NewProductPage() {
             </div>
 
             {/* ── Form ── */}
-            <ProductForm mode="create" />
+            <ProductForm mode="create" categories={categories} />
         </div>
     );
 }

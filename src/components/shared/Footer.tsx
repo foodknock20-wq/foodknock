@@ -14,6 +14,8 @@ import {
     ShieldCheck,
     UtensilsCrossed,
 } from "lucide-react";
+import { KITCHEN_HOURS, SUPPORT_HOURS } from "@/lib/businessHours";
+import FooterOpenStatus from "@/components/shared/FooterOpenStatus";
 
 const quickLinks = [
     { href: "/menu", label: "Browse Menu" },
@@ -31,16 +33,24 @@ const socialLinks = [
     { href: "https://facebook.com", label: "Facebook", icon: Facebook },
 ];
 
+// FINAL UI/UX MASTER PROMPT — Phase 3: this used to be a Mon–Sat/Sunday
+// split ("10 AM–8 PM" / "10 AM–7 PM") that existed nowhere else in the
+// system and conflicted with Contact page's own "every day" kitchen-hours
+// statement. Now sourced from the single shared src/lib/businessHours.ts —
+// see that file's header for which number is authoritative and why.
 const hoursData = [
-    { day: "Mon – Sat", time: "10:00 AM – 8:00 PM" },
-    { day: "Sunday", time: "10:00 AM – 7:00 PM" },
+    { day: KITCHEN_HOURS.days, time: KITCHEN_HOURS.label },
 ];
 
+// FoodKnock Phase 6 — "Top Rated" removed: a vague superlative with no
+// real rating/ranking behind it anywhere in the system (same category of
+// claim already fixed on Home/Menu/Auth/Contact). Replaced with a real,
+// always-true fact instead of another invented one.
 const trustBadges = [
     { icon: Zap, label: "Fast Delivery" },
     { icon: UtensilsCrossed, label: "Fresh Every Time" },
     { icon: ShieldCheck, label: "Secure Ordering" },
-    { icon: Star, label: "Top Rated" },
+    { icon: Star, label: "Locally Owned" },
 ];
 
 export default function Footer() {
@@ -261,8 +271,8 @@ export default function Footer() {
                             <li>
                                 <div className="mt-2 rounded-2xl border border-white/8 bg-white/4 p-4">
                                     <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-white/25">Support Hours</p>
-                                    <p className="text-[13px] font-semibold text-white/50">Mon–Sat · 10 AM – 8 PM</p>
-                                    <p className="mt-1 text-[11px] text-white/25">We typically reply within 12-24 hours</p>
+                                    <p className="text-[13px] font-semibold text-white/50">WhatsApp · {SUPPORT_HOURS.whatsapp.label} · {SUPPORT_HOURS.whatsapp.days}</p>
+                                    <p className="mt-1 text-[11px] text-white/25">Fastest replies on WhatsApp</p>
                                 </div>
                             </li>
                         </ul>
@@ -288,13 +298,7 @@ export default function Footer() {
                             ))}
                         </ul>
 
-                        <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2">
-                            <span className="relative flex h-2 w-2">
-                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
-                            </span>
-                            <span className="text-[11px] font-bold text-emerald-400">Open Now · Taking Orders</span>
-                        </div>
+                        <FooterOpenStatus />
                     </div>
                 </div>
             </div>
@@ -309,6 +313,8 @@ export default function Footer() {
                         <Link href="/terms" className="transition-colors hover:text-orange-400">Terms of Service</Link>
                         <span className="text-white/15">·</span>
                         <Link href="/founders" className="transition-colors hover:text-orange-400">Our Founders</Link>
+                        <span className="text-white/15">·</span>
+                        <Link href="/faq" className="transition-colors hover:text-orange-400">FAQ</Link>
                         <span className="text-white/15">·</span>
                         <a
                             href="https://foodknock.com"

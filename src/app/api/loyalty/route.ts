@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 // POST — validates and executes a point redemption request at checkout
 
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { connectDB }   from "@/lib/db";
 import User            from "@/models/User";
 import LoyaltyLedger  from "@/models/LoyaltyLedger";
@@ -15,7 +16,9 @@ import {
     LOYALTY_CONFIG,
     maxRedeemablePoints,
     pointsToRupees,
+    InsufficientLoyaltyPointsError,
 } from "@/lib/loyaltyService";
+import { isValidRedeemRequest } from "@/lib/loyaltyLogic";
 
 // ── Auth helper ─────────────────────────────────────────────────────────────
 function getUserIdFromCookie(req: NextRequest): string | null {
@@ -165,32 +168,52 @@ export async function POST(req: NextRequest) {
     try {
         await connectDB();
 
-        const body                                    = await req.json();
-        const { pointsToRedeem, orderTotal, orderId } = body;
+        const body                         = await req.json();
+        const { pointsToRedeem, orderId } = body;
+        // Phase 17.1B: `orderTotal` is no longer accepted from the client
+        // for the max-redeemable calculation — see the order-ownership
+        // fix below, which derives it from the order's own authoritative
+        // totalAmount instead. A client-supplied total could previously
+        // inflate the computed redemption cap.
 
         // ── Input validation ───────────────────────────────────────────────
-        if (
-            typeof pointsToRedeem !== "number" ||
-            !Number.isFinite(pointsToRedeem)    ||
-            pointsToRedeem <= 0
-        ) {
+        if (!isValidRedeemRequest(pointsToRedeem)) {
             return NextResponse.json(
-                { success: false, message: "pointsToRedeem must be a positive finite number" },
+                { success: false, message: `pointsToRedeem must be a positive whole number of at least ${LOYALTY_CONFIG.MIN_REDEEM_POINTS}` },
                 { status: 400 }
             );
         }
-        if (!orderId || typeof orderId !== "string") {
+        if (!orderId || typeof orderId !== "string" || !mongoose.Types.ObjectId.isValid(orderId)) {
             return NextResponse.json(
-                { success: false, message: "orderId is required" },
+                { success: false, message: "A valid orderId is required" },
                 { status: 400 }
             );
         }
-        if (typeof orderTotal !== "number" || orderTotal <= 0) {
+
+        // ── Phase 17.1B: order existence + ownership — previously this
+        // route trusted the client-supplied orderId as-is, with no check
+        // that the order existed at all, let alone belonged to the
+        // authenticated caller. A client could redeem points "against"
+        // any arbitrary ObjectId, including another customer's real
+        // order id, with the ledger entry simply recording whatever
+        // string was sent. ──────────────────────────────────────────────
+        const order = await Order.findById(orderId).select("user totalAmount").lean<{ _id: unknown; user?: unknown; totalAmount: number } | null>();
+        if (!order) {
             return NextResponse.json(
-                { success: false, message: "orderTotal must be a positive number" },
-                { status: 400 }
+                { success: false, message: "Order not found" },
+                { status: 404 }
             );
         }
+        if (!order.user || String(order.user) !== userId) {
+            // Same anti-enumeration pattern already used elsewhere in this
+            // codebase (orders/[id] GET) — "not found" for a real order
+            // that isn't yours, not a distinguishable 403.
+            return NextResponse.json(
+                { success: false, message: "Order not found" },
+                { status: 404 }
+            );
+        }
+        const orderTotal = Number(order.totalAmount) || 0;
 
         // ── Live balance ───────────────────────────────────────────────────
         const user = await User.findById(userId).select("loyaltyPoints").lean();
@@ -203,12 +226,6 @@ export async function POST(req: NextRequest) {
         const balance = Number((user as any).loyaltyPoints) || 0;
 
         // ── Business rules ─────────────────────────────────────────────────
-        if (pointsToRedeem < LOYALTY_CONFIG.MIN_REDEEM_POINTS) {
-            return NextResponse.json(
-                { success: false, message: `Minimum ${LOYALTY_CONFIG.MIN_REDEEM_POINTS} points required to redeem` },
-                { status: 400 }
-            );
-        }
         const maxRedeemable = maxRedeemablePoints(orderTotal, balance);
         if (pointsToRedeem > maxRedeemable) {
             return NextResponse.json(
@@ -221,11 +238,13 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // ── Idempotency guard ──────────────────────────────────────────────
+        // ── Idempotency guard (fast-path — see redeemPoints()'s own
+        // DB-enforced unique-claim guarantee for the real protection) ──────
         const alreadyRedeemed = await LoyaltyLedger.exists({
             user:  userId,
             order: orderId,
             type:  "redemption",
+            status: "completed",
         });
         if (alreadyRedeemed) {
             return NextResponse.json(
@@ -236,11 +255,11 @@ export async function POST(req: NextRequest) {
 
         // ── Execute ────────────────────────────────────────────────────────
         const discountRupees = await redeemPoints({
-    userId,
-    points:  pointsToRedeem,
-    orderMongoId: orderId,   // ✅ FIXED
-    note: `Redeemed ${pointsToRedeem} pts → ₹${pointsToRupees(pointsToRedeem)} discount`,
-});
+            userId,
+            points:       pointsToRedeem,
+            orderMongoId: String(order._id),
+            note:         `Redeemed ${pointsToRedeem} pts → ₹${pointsToRupees(pointsToRedeem)} discount`,
+        });
 
         return NextResponse.json({
             success:        true,
@@ -250,6 +269,9 @@ export async function POST(req: NextRequest) {
         });
     } catch (err: any) {
         console.error("REDEEM_LOYALTY_ERROR", err);
+        if (err instanceof InsufficientLoyaltyPointsError) {
+            return NextResponse.json({ success: false, message: err.message }, { status: 400 });
+        }
         return NextResponse.json(
             { success: false, message: err.message ?? "Failed to redeem points" },
             { status: 500 }

@@ -1,51 +1,49 @@
 // src/components/founders/FoundersHero.tsx
+//
+// FOUNDERS PAGE REDESIGN — rebuilt compact. The prior version had a large
+// standalone ambient glow, a tall eyebrow→headline→subtitle→divider stack,
+// and ~9rem of combined top/bottom padding on desktop — all of it dead
+// space before the founder cards ever appeared. This version keeps the
+// same three content pieces (eyebrow, headline, subtitle) but removes the
+// decorative divider entirely (the section boundary below already reads as
+// a break) and cuts vertical padding so the cards sit closer to the fold
+// without the hero ever needing to fill the viewport.
 export default function FoundersHero() {
     return (
-        <section className="relative px-4 pb-20 pt-28 text-center sm:px-6 md:px-8 md:pb-24 md:pt-36">
-            {/* Ambient glow — softened, single warm source */}
+        <section className="relative px-4 pb-8 pt-10 text-center sm:px-6 sm:pb-10 sm:pt-14 md:px-8 md:pb-12 md:pt-16">
+            {/* Single restrained ambient accent — smaller and quieter than
+                before, present only to keep the warm brand tone, not to
+                carry visual weight of its own. */}
             <div
-                className="pointer-events-none absolute left-1/2 top-1/2 h-[280px] w-[560px] -translate-x-1/2 -translate-y-1/2 rounded-full opacity-[0.10] blur-3xl"
+                className="pointer-events-none absolute left-1/2 top-0 h-[180px] w-[420px] -translate-x-1/2 rounded-full opacity-[0.08] blur-3xl"
                 style={{ background: "radial-gradient(ellipse, #FF5C1A, transparent 70%)" }}
                 aria-hidden="true"
             />
 
             <div className="relative mx-auto max-w-2xl">
-                {/* Eyebrow — tighter, calmer, no pulse (subtle > flashy) */}
-                <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-white/70 px-4 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-sm">
+                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-white/70 px-3.5 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.03)] backdrop-blur-sm">
                     <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-                    <p className="text-[10.5px] font-bold uppercase tracking-[0.28em] text-orange-600">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-orange-600">
                         The People Behind the Brand
                     </p>
                 </div>
 
-                {/* Headline — tighter line-height, better weight contrast between lines */}
-                <h1 className="mb-6 text-[2.75rem] font-black leading-[1.08] tracking-[-0.02em] text-gray-900 sm:text-[3.25rem] md:text-[3.75rem]">
-                    <span
-                        className="block"
-                        style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-                    >
-                        Meet the Minds
-                    </span>
-                    <span
-                        className="mt-1 block bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 bg-clip-text text-transparent"
-                        style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
-                    >
-                        Behind FoodKnock
+                {/* Fluid, clamp-based headline — wraps naturally at every
+                    width instead of relying on a fixed px/breakpoint ladder,
+                    and never needs to dominate the full viewport height. */}
+                <h1 className="mb-4 text-[clamp(1.9rem,6vw,3.25rem)] font-black leading-[1.08] tracking-[-0.02em] text-gray-900">
+                    <span style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
+                        Meet the Minds Behind{" "}
+                        <span className="bg-gradient-to-r from-orange-600 via-orange-500 to-amber-500 bg-clip-text text-transparent">
+                            FoodKnock
+                        </span>
                     </span>
                 </h1>
 
-                {/* Subtitle — narrower measure for readability, calmer weight */}
-                <p className="mx-auto max-w-md text-[15.5px] leading-[1.7] text-gray-500 sm:text-base">
+                <p className="mx-auto max-w-md text-[15px] leading-[1.65] text-gray-500 sm:text-base">
                     Two brothers from Rajasthan. Two very different skills.
                     One refusal to settle for average.
                 </p>
-
-                {/* Divider — thinner, more restrained */}
-                <div className="mx-auto mt-14 flex items-center justify-center gap-2.5">
-                    <div className="h-px w-16 bg-gradient-to-r from-transparent to-orange-200" />
-                    <div className="h-1 w-1 rounded-full bg-orange-400" />
-                    <div className="h-px w-16 bg-gradient-to-l from-transparent to-orange-200" />
-                </div>
             </div>
         </section>
     );

@@ -4,8 +4,14 @@ export const dynamic = "force-dynamic";
 // Premium branded Privacy Policy — FoodKnock
 // Light warm food-brand visual language. Clear, honest, not corporate.
 
+import type { Metadata } from "next";
 import Link from "next/link";
-import Navbar from "@/components/shared/Navbar";
+
+export const metadata: Metadata = {
+    title: "Privacy Policy — FoodKnock",
+    description: "How FoodKnock collects, uses, and protects your data. Clear, honest, no fine-print surprises.",
+    alternates: { canonical: "https://www.foodknock.com/privacy" },
+};
 import Footer from "@/components/shared/Footer";
 import {
     Lock, ShieldCheck, Eye, Server, Cookie,
@@ -113,13 +119,12 @@ const SECTIONS = [
 export default function PrivacyPage() {
     return (
         <>
-            <Navbar />
 
-            <main className="min-h-screen bg-[#FFFBF5]">
+            <main className="relative min-h-screen overflow-x-hidden bg-[#FFFBF5]">
 
                 {/* ── Glow orbs ── */}
-                <div className="pointer-events-none fixed -left-32 top-0 h-[400px] w-[400px] rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(ellipse, #fed7aa, transparent 70%)" }} aria-hidden="true" />
-                <div className="pointer-events-none fixed -right-32 bottom-0 h-[350px] w-[350px] rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, #fde68a, transparent 70%)" }} aria-hidden="true" />
+                <div className="pointer-events-none absolute -left-32 top-0 h-[400px] w-[400px] rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(ellipse, #fed7aa, transparent 70%)" }} aria-hidden="true" />
+                <div className="pointer-events-none absolute -right-32 bottom-0 h-[350px] w-[350px] rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, #fde68a, transparent 70%)" }} aria-hidden="true" />
 
                 {/* ── Hero header ── */}
                 <div className="relative overflow-hidden border-b border-amber-100/80 bg-white">
@@ -140,7 +145,7 @@ export default function PrivacyPage() {
                             </span>
                         </h1>
                         <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-stone-500">
-                            Written in plain language — not corporate legalese. We're a small team that genuinely cares.{" "}
+                            Written in plain language — not corporate legalese. We&apos;re a small team that genuinely cares.{" "}
                             <span className="font-bold text-stone-700">Last updated: {LAST_UPDATED}.</span>
                         </p>
 
@@ -248,8 +253,8 @@ export default function PrivacyPage() {
 
                         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                             <div>
-                                <h3 className="text-xl font-black text-white md:text-2xl">Privacy questions? We're real humans. 🙋</h3>
-                                <p className="mt-2 text-sm text-white/80">A real local team — reach out anytime and we'll answer honestly.</p>
+                                <h3 className="text-xl font-black text-white md:text-2xl">Privacy questions? We&apos;re real humans. 🙋</h3>
+                                <p className="mt-2 text-sm text-white/80">A real local team — reach out anytime and we&apos;ll answer honestly.</p>
                             </div>
                             <div className="flex shrink-0 flex-wrap gap-3">
                                 <a

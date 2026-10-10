@@ -4,31 +4,43 @@
 // Premium dark admin topbar — FoodKnock
 
 import { usePathname } from "next/navigation";
-import { Menu, Bell, Search, ShieldCheck } from "lucide-react";
+import { Menu, Bell, Search, ShieldCheck, ChevronRight } from "lucide-react";
+import { resolveAdminNavItem, resolveAdminGroupLabel } from "./adminNavConfig";
 
-const PAGE_META: Record<string, { title: string; subtitle: string }> = {
-    "/admin":          { title: "Dashboard",  subtitle: "Overview of your FoodKnock operations"    },
-    "/admin/products": { title: "Products",   subtitle: "Manage your menu items and stock"          },
-    "/admin/orders":   { title: "Orders",     subtitle: "View and manage customer orders"           },
-    "/admin/users":    { title: "Users",      subtitle: "Registered customer accounts"              },
-    "/admin/reviews":  { title: "Reviews",    subtitle: "Customer feedback and ratings"             },
-    "/admin/offers":   { title: "Offers",     subtitle: "Promotions and discount deals"             },
-    "/admin/loyalty":  { title: "Loyalty",    subtitle: "Manage points, rewards and referrals"      },
+// Phase 15B: subtitles kept here (adminNavConfig.ts only owns label/icon/
+// href — a one-line description per page isn't navigation data, so it
+// doesn't belong in the shared nav source of truth). Falls back to a
+// generic subtitle for any matched page that doesn't have a bespoke one
+// yet — never a missing/blank subtitle.
+const SUBTITLES: Record<string, string> = {
+    "/admin": "Overview of your FoodKnock operations",
+    "/admin/products": "Manage your menu items and stock",
+    "/admin/orders": "View and manage customer orders",
+    "/admin/users": "Registered customer accounts",
+    "/admin/reviews": "Customer feedback and ratings",
+    "/admin/review-rewards": "Review-for-reward submissions",
+    "/admin/coupons": "Discount codes and redemption limits",
+    "/admin/campaigns": "Campaigns, offers, and promotions",
+    "/admin/loyalty": "Points, rewards, and referrals",
+    "/admin/notifications": "Push notification center",
+    "/admin/delivery": "Delivery zones and shop settings",
 };
 
-function getPageMeta(pathname: string) {
-    return (
-        PAGE_META[pathname] ??
-        PAGE_META[Object.keys(PAGE_META).find((k) => pathname.startsWith(k) && k !== "/admin") ?? ""] ??
-        { title: "Admin", subtitle: "FoodKnock Admin Panel" }
-    );
+function getPageMeta(pathname: string): { title: string; subtitle: string; group: string | null } {
+    const item = resolveAdminNavItem(pathname);
+    if (!item) return { title: "Admin", subtitle: "FoodKnock Admin Panel", group: null };
+    return {
+        title: item.label,
+        subtitle: SUBTITLES[item.href] ?? "FoodKnock Admin Panel",
+        group: resolveAdminGroupLabel(pathname),
+    };
 }
 
 type Props = { onMenuClick: () => void };
 
 export default function AdminTopbar({ onMenuClick }: Props) {
-    const pathname          = usePathname();
-    const { title, subtitle } = getPageMeta(pathname);
+    const pathname = usePathname();
+    const { title, subtitle, group } = getPageMeta(pathname);
 
     return (
         <header className="relative flex shrink-0 items-center justify-between border-b border-white/[0.05] bg-[#0c0c12]/90 px-4 py-3 backdrop-blur-xl md:px-6">
@@ -51,6 +63,14 @@ export default function AdminTopbar({ onMenuClick }: Props) {
                 </button>
 
                 <div className="min-w-0">
+                    {/* Breadcrumb — group > page, only when the group differs from the page title (e.g. not on the Dashboard, which has no parent group worth repeating) */}
+                    {group && group !== title && (
+                        <div className="mb-0.5 hidden items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-stone-600 sm:flex">
+                            <span>{group}</span>
+                            <ChevronRight size={10} />
+                            <span className="text-stone-500">{title}</span>
+                        </div>
+                    )}
                     <div className="flex items-center gap-2.5">
                         <h1 className="text-lg font-black leading-none tracking-tight text-white md:text-[1.2rem]">
                             {title}

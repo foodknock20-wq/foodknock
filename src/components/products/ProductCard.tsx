@@ -43,12 +43,11 @@
 //     cost source on a force-dynamic product-grid page.
 //     Expected bandwidth: removes the prefetch RSC payload downloads.
 
-import { toast } from "react-hot-toast";
-import { useCartStore } from "@/store/cartStore";
-import { ShoppingCart, Plus, Tag, Flame } from "lucide-react";
-import { useState, useCallback, useMemo, useRef, useEffect, memo } from "react";
+import { ShoppingCart, Plus, Tag, Flame, Star } from "lucide-react";
+import { useState, useMemo, memo } from "react";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string;
@@ -64,6 +63,10 @@ type Product = {
     isAvailable: boolean;
     isFeatured?: boolean;
     tags?: string[];
+    // Real Product.rating (0-5, nullable) — only ever rendered when it's a
+    // real non-null number (see audit: no admin UI sets this today, so it
+    // is null for virtually every product — never a fabricated fallback).
+    rating?: number | null;
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -110,33 +113,24 @@ const FALLBACK_IMG =
 // Defined here so they are created ONCE per module load, never on render.
 
 const ADD_BTN_COMBO_ACTIVE: React.CSSProperties = {
-    background: "linear-gradient(135deg,#e11d48,#FF5C1A)",
-    boxShadow: "0 4px 14px rgba(225,29,72,0.3)",
+    background: "linear-gradient(135deg,#e11d48,var(--fk-accent))",
+    boxShadow: "0 4px 14px rgba(225,29,72,0.25)",
     touchAction: "auto",
 };
 const ADD_BTN_REGULAR_ACTIVE: React.CSSProperties = {
-    background: "linear-gradient(135deg,#FF5C1A,#FF8C42)",
+    background: "linear-gradient(135deg,var(--fk-accent),var(--fk-gold))",
     boxShadow: "0 4px 14px rgba(255,92,26,0.3)",
     touchAction: "auto",
 };
 const ADD_BTN_ADDED: React.CSSProperties = {
-    background: "#10b981",
-    boxShadow: "0 4px 14px rgba(16,185,129,0.4)",
+    background: "var(--fk-success)",
+    boxShadow: "0 4px 14px rgba(22,163,74,0.35)",
     touchAction: "auto",
 };
 const ADD_BTN_DISABLED: React.CSSProperties = { touchAction: "auto" };
 
-const PRICE_PRIMARY_COLOR: React.CSSProperties = { color: "#FF5C1A" };
+const PRICE_PRIMARY_COLOR: React.CSSProperties = { color: "var(--fk-accent)" };
 const PRICE_SAVE_COLOR: React.CSSProperties = { color: "#e11d48" };
-const TOAST_STYLE = {
-    style: {
-        background: "#fff7ed",
-        color: "#7c2d12",
-        border: "1px solid rgba(255,92,26,0.22)",
-        borderRadius: "14px",
-    },
-    iconTheme: { primary: "#FF5C1A", secondary: "#fff7ed" },
-} as const;
 
 // Image wrapper: explicit height prevents layout shift (CLS).
 // width:"100%" + aspect-ratio via fixed h class; overflow hidden on parent.
@@ -314,25 +308,15 @@ const ProductCard = memo(function ProductCard({
     product: Product;
     index?: number;
 }) {
-    const addItem = useCartStore((s) => s.addItem);
+    const { handleAdd: addToCart, addingId } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
-    const [adding, setAdding] = useState(false);
-    const addingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-    useEffect(() => {
-        return () => {
-            if (addingTimerRef.current !== null) {
-                clearTimeout(addingTimerRef.current);
-            }
-        };
-    }, []);
+    const adding = addingId === product._id;
 
     // React-controlled image src — falls back to FALLBACK_IMG on error (hydration-safe)
     const [imgSrc, setImgSrc] = useState(() => cdnImage(product.image, 400));
 
     // PERF: handleImgError is a stable function reference per component instance.
     // We use useMemo (not useCallback) because it's cheaper for a one-time stable fn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     const handleImgError = useMemo(() => makeImgErrorHandler(setImgSrc), []);
 
     // PERF: memoised derived values
@@ -351,38 +335,11 @@ const ProductCard = memo(function ProductCard({
         };
     }, [product]);
 
-    const handleAdd = useCallback(
-        (e: React.MouseEvent) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (unavailable) {
-                toast.error("This item is currently unavailable");
-                return;
-            }
-
-            if (addingTimerRef.current !== null) {
-                clearTimeout(addingTimerRef.current);
-            }
-
-            setAdding(true);
-            addItem({
-                _id: product._id,
-                name: product.name,
-                price: product.price,
-                image: product.image,
-                quantity: 1,
-                stock: product.stock,
-                category: product.category,
-            });
-            toast.success(`${product.name} added! 🛒`, TOAST_STYLE);
-
-            addingTimerRef.current = setTimeout(() => {
-                setAdding(false);
-                addingTimerRef.current = null;
-            }, 700);
-        },
-        [unavailable, addItem, product]
-    );
+    const handleAdd = (e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        addToCart(product, `${product.name} added! 🛒`);
+    };
 
     // Image loading strategy:
     //   - First 4 cards (above fold): eager + fetchpriority high → LCP acceleration
@@ -503,11 +460,18 @@ const ProductCard = memo(function ProductCard({
                     </div>
 
                     <h3
-                        className="line-clamp-2 text-[13.5px] font-black leading-snug text-stone-900 sm:text-[0.92rem] md:text-[0.95rem]"
+                        className="line-clamp-2 text-[13.5px] font-black leading-snug text-fk-text sm:text-[0.92rem] md:text-[0.95rem]"
                         style={{ fontFamily: "'Playfair Display',Georgia,serif" }}
                     >
                         {product.name}
                     </h3>
+
+                    {typeof product.rating === "number" && product.rating > 0 && (
+                        <span className="mt-0.5 flex items-center gap-0.5 text-[10.5px] font-bold text-fk-text-secondary">
+                            <Star size={10} className="fill-fk-gold text-fk-gold" />
+                            {product.rating.toFixed(1)}
+                        </span>
+                    )}
 
                     {blurb && (
                         <p className="mt-1 line-clamp-2 text-[10.5px] leading-relaxed text-stone-400">
@@ -641,11 +605,18 @@ const ProductCard = memo(function ProductCard({
                 </div>
 
                 <h3
-                    className="line-clamp-2 text-[13.5px] font-black leading-snug text-stone-900 sm:text-[0.92rem] md:text-[0.95rem]"
+                    className="line-clamp-2 text-[13.5px] font-black leading-snug text-fk-text sm:text-[0.92rem] md:text-[0.95rem]"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}
                 >
                     {product.name}
                 </h3>
+
+                {typeof product.rating === "number" && product.rating > 0 && (
+                    <span className="mt-0.5 flex items-center gap-0.5 text-[10.5px] font-bold text-fk-text-secondary">
+                        <Star size={10} className="fill-fk-gold text-fk-gold" />
+                        {product.rating.toFixed(1)}
+                    </span>
+                )}
 
                 {(product.shortDescription || product.description) && (
                     <p className="mt-1 hidden line-clamp-1 text-[10.5px] leading-relaxed text-stone-400 sm:block">

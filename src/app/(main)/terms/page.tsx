@@ -4,8 +4,14 @@ export const dynamic = "force-dynamic";
 // Premium branded Terms & Conditions — FoodKnock
 // Light warm food-brand visual language. Not a boring legal dump.
 
+import type { Metadata } from "next";
 import Link from "next/link";
-import Navbar from "@/components/shared/Navbar";
+
+export const metadata: Metadata = {
+    title: "Terms & Conditions — FoodKnock",
+    description: "The terms governing orders and use of the FoodKnock food delivery platform, written in plain language.",
+    alternates: { canonical: "https://www.foodknock.com/terms" },
+};
 import Footer from "@/components/shared/Footer";
 import {
     ShieldCheck, Globe, UtensilsCrossed, Package,
@@ -64,7 +70,24 @@ const SECTIONS = [
         emoji: "💳",
         icon:  CreditCard,
         title: "Payments, Charges & Refunds",
-        body:  `FoodKnock accepts online payments only. All transactions are processed securely through our payment gateway using industry-standard SSL encryption. We do not store your card details.\n\nA delivery fee may apply to orders below the minimum order value (displayed at checkout). A small platform convenience fee may be added.\n\nRefunds: If your order was not delivered or was significantly incorrect, please email us at ${CONTACT_EMAIL} within 24 hours. Eligible refunds will be processed back to your original payment method within 5–7 business days.`,
+        // SEO/policy-accuracy fix: this previously stated "online payments
+        // only" — Cash on Delivery is a real, currently-live checkout
+        // option (src/app/(main)/checkout/page.tsx's PaymentMethod type
+        // includes "cod", with a real selectable UI toggle), so the old
+        // text directly contradicted actual application behavior. The
+        // COD refund clause below matches orderCancellation.ts's own
+        // documented behavior exactly ("Refund: Not required (COD)" —
+        // no payment was ever collected upfront for a COD order). The
+        // online-payment refund-timeline sentence (5–7 business days) is
+        // UNCHANGED — this codebase has no automated Razorpay refund
+        // integration (confirmed: orderCancellation.ts's own comment
+        // states "Does NOT call any Razorpay refund API — none exists in
+        // this codebase"), meaning that specific commitment describes a
+        // manual/operational process this task cannot verify as true or
+        // false from code alone. It was left as-is rather than guessed at
+        // in either direction — see FOODKNOCK_SEO_REPORT.md for the
+        // owner-confirmation request on this specific point.
+        body:  `FoodKnock accepts Cash on Delivery (COD) and secure online payments via our payment gateway (cards, UPI, net banking and wallets, subject to what the gateway itself supports). Online transactions are processed securely using industry-standard SSL encryption — we do not store your card details.\n\nA delivery fee may apply depending on your distance from our kitchen, and orders below the minimum order value may carry an additional fee (both shown at checkout). A small platform convenience fee may also apply.\n\nRefunds: If you paid by Cash on Delivery, no refund is applicable, since no payment was collected in advance. If you paid online and your order was not delivered or was significantly incorrect, please email us at ${CONTACT_EMAIL} within 24 hours — eligible refunds will be processed back to your original payment method within 5–7 business days.`,
     },
     {
         id:    "account",
@@ -78,7 +101,14 @@ const SECTIONS = [
         emoji: "✉️",
         icon:  MessageSquare,
         title: "Communication",
-        body:  `We communicate primarily via email. By creating an account, you consent to receiving order confirmations, delivery updates, and support messages to your registered email address.\n\nPromotional communications are opt-in only. You can unsubscribe from marketing emails at any time using the link in the email footer or by contacting us at ${CONTACT_EMAIL}.\n\nWe do not use WhatsApp or phone calls as primary customer service channels.`,
+        // SEO/policy-accuracy fix: this previously stated "we do not use
+        // WhatsApp or phone calls as primary customer service channels" —
+        // directly contradicted by the real Contact page
+        // (src/app/(main)/contact/page.tsx's CHANNELS array), where
+        // WhatsApp is listed first, badged "Fastest," and described as
+        // "The fastest way to reach us," and phone is badged "Direct."
+        // Both are clearly real, primary channels, not a fallback.
+        body:  `By creating an account, you consent to receiving order confirmations, delivery updates, and support messages to your registered email address. We may also reach you via WhatsApp or phone for order-related support — see our Contact page for all current support channels.\n\nPromotional communications are opt-in only. You can unsubscribe from marketing emails at any time using the link in the email footer or by contacting us at ${CONTACT_EMAIL}.`,
     },
     {
         id:    "responsibilities",
@@ -120,13 +150,12 @@ const SECTIONS = [
 export default function TermsPage() {
     return (
         <>
-            <Navbar />
 
-            <main className="min-h-screen bg-[#FFFBF5]">
+            <main className="relative min-h-screen overflow-x-hidden bg-[#FFFBF5]">
 
                 {/* ── Glow orbs ── */}
-                <div className="pointer-events-none fixed -left-32 top-0 h-[400px] w-[400px] rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(ellipse, #fed7aa, transparent 70%)" }} aria-hidden="true" />
-                <div className="pointer-events-none fixed -right-32 bottom-0 h-[350px] w-[350px] rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, #fde68a, transparent 70%)" }} aria-hidden="true" />
+                <div className="pointer-events-none absolute -left-32 top-0 h-[400px] w-[400px] rounded-full opacity-20 blur-3xl" style={{ background: "radial-gradient(ellipse, #fed7aa, transparent 70%)" }} aria-hidden="true" />
+                <div className="pointer-events-none absolute -right-32 bottom-0 h-[350px] w-[350px] rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, #fde68a, transparent 70%)" }} aria-hidden="true" />
 
                 {/* ── Hero header ── */}
                 <div className="relative overflow-hidden border-b border-amber-100/80 bg-white">
@@ -151,12 +180,21 @@ export default function TermsPage() {
                             <span className="font-bold text-stone-700">Last updated: {LAST_UPDATED}.</span>
                         </p>
 
-                        {/* Key points chips */}
+                        {/* Key points chips — SEO/policy-accuracy fix: "Online
+                            payments only" and "30–45 min delivery" were both
+                            unsupported by actual application behavior (COD is
+                            a real live payment option; no fixed delivery-time
+                            guarantee exists anywhere in the serviceability/
+                            delivery-fee logic — only distance-based fees do).
+                            "Support via email" understated the real channels
+                            already listed on /contact (WhatsApp, phone,
+                            email). Replaced with claims the app actually
+                            supports. */}
                         <div className="mt-6 flex flex-wrap gap-2.5">
                             {[
-                                { emoji: "💳", text: "Online payments only",      color: "border-blue-200   bg-blue-50   text-blue-800"    },
-                                { emoji: "🛵", text: "20–30 min delivery",        color: "border-orange-200 bg-orange-50 text-orange-800"  },
-                                { emoji: "💬", text: "Support via email",         color: "border-amber-200  bg-amber-50  text-amber-800"   },
+                                { emoji: "💳", text: "COD & online payments",     color: "border-blue-200   bg-blue-50   text-blue-800"    },
+                                { emoji: "🛵", text: "Distance-based delivery fee", color: "border-orange-200 bg-orange-50 text-orange-800"  },
+                                { emoji: "💬", text: "WhatsApp & email support",  color: "border-amber-200  bg-amber-50  text-amber-800"   },
                                 { emoji: "🔄", text: "Easy refund process",       color: "border-emerald-200 bg-emerald-50 text-emerald-800"},
                             ].map(({ emoji, text, color }) => (
                                 <div key={text} className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[12px] font-bold ${color} shadow-sm`}>
@@ -257,7 +295,7 @@ export default function TermsPage() {
                         <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <h3 className="text-xl font-black text-white md:text-2xl">Questions about these terms? 🙋</h3>
-                                <p className="mt-2 text-sm text-white/80">We're a real local team — reach out anytime and we'll answer honestly.</p>
+                                <p className="mt-2 text-sm text-white/80">We&apos;re a real local team — reach out anytime and we&apos;ll answer honestly.</p>
                             </div>
                             <div className="flex shrink-0 flex-wrap gap-3">
                                 <a

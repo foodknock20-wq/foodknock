@@ -11,26 +11,20 @@ import { connectDB }   from "@/lib/db";
 import User            from "@/models/User";
 import LoyaltyLedger  from "@/models/LoyaltyLedger";
 import Order           from "@/models/Order";
-import { verifyToken } from "@/lib/auth";
-import { awardPoints } from "@/lib/loyaltyService";
+import { requireAdmin } from "@/lib/apiAuth";
+import { awardPoints, InsufficientLoyaltyPointsError } from "@/lib/loyaltyService";
+import { isValidAdminPointAmount } from "@/lib/loyaltyLogic";
 
 // ── Points → INR conversion ratio ─────────────────────────────────────────
 // 1 loyalty point ≈ ₹0.50 discount liability
 const POINTS_TO_INR = 0.5;
 
-// ── Admin guard ────────────────────────────────────────────────────────────
-function isAdmin(req: NextRequest): boolean {
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const match        = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
-    const token        = match ? decodeURIComponent(match[1]) : null;
-    if (!token) return false;
-    try {
-        const decoded = verifyToken(token) as { role?: string };
-        return decoded?.role === "admin";
-    } catch {
-        return false;
-    }
-}
+// Phase 17.1B: previously this route (and [userId]/route.ts) hand-rolled a
+// local JWT-role-claim-only check instead of the project's own centralized,
+// DB-verified requireAdmin() (src/lib/apiAuth.ts) — meaning a demoted/
+// deactivated admin's still-valid session token would have continued to
+// work here for up to 7 days. Both routes now use requireAdmin() like the
+// majority of the rest of the admin API surface.
 
 // ── Global analytics type (returned alongside paginated users) ─────────────
 type GlobalAnalytics = {
@@ -44,7 +38,8 @@ type GlobalAnalytics = {
 
 // ── GET /api/admin/loyalty ─────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-    if (!isAdmin(req)) {
+    const admin = await requireAdmin(req);
+    if (!admin) {
         return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
     }
 
@@ -241,7 +236,8 @@ export async function GET(req: NextRequest) {
 
 // ── POST /api/admin/loyalty — manual credit or debit ──────────────────────
 export async function POST(req: NextRequest) {
-    if (!isAdmin(req)) {
+    const admin = await requireAdmin(req);
+    if (!admin) {
         return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
     }
 
@@ -256,9 +252,9 @@ export async function POST(req: NextRequest) {
                 { status: 400 }
             );
         }
-        if (typeof points !== "number" || points === 0 || !Number.isFinite(points)) {
+        if (!isValidAdminPointAmount(points)) {
             return NextResponse.json(
-                { success: false, message: "points must be a non-zero finite number" },
+                { success: false, message: "points must be a non-zero finite whole number" },
                 { status: 400 }
             );
         }
@@ -341,6 +337,13 @@ export async function POST(req: NextRequest) {
         });
     } catch (err: any) {
         console.error("ADMIN_LOYALTY_POST_ERROR", err);
+        // Defense-in-depth: the pre-check above already handles the common
+        // case with a friendly message, but awardPoints()'s own atomic
+        // guard (see loyaltyService.ts) is the real protection against a
+        // concurrent debit race — surface its error the same way.
+        if (err instanceof InsufficientLoyaltyPointsError) {
+            return NextResponse.json({ success: false, message: err.message }, { status: 400 });
+        }
         return NextResponse.json(
             { success: false, message: err.message ?? "Failed to update points" },
             { status: 500 }

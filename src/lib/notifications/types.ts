@@ -161,6 +161,7 @@ export type NotificationEventName =
     | "order.preparing"
     | "order.out_for_delivery"
     | "order.delivered"
+    | "order.cancelled"
     | "auth.otp_requested"
     | "auth.password_reset"
     | "user.welcome"

@@ -27,10 +27,10 @@ import User                     from "@/models/User";
 import { handleOrderDelivered } from "@/lib/loyaltyService";
 import { sendOrderDeliveredEmail } from "@/lib/mailer";
 import { notificationEngine, type NotificationEventName } from "@/lib/notifications";
+import { requireAdmin, requireUser } from "@/lib/apiAuth";
+import { changeOrderStatus, isOrderStatus } from "@/lib/orderStatus";
 
 type RouteContext = { params: Promise<{ id: string }> };
-
-const VALID_STATUSES = ["received", "preparing", "out_for_delivery", "delivered"] as const;
 
 // Maps an order status to the transactional push event fired on transition
 // INTO that status. "received" has no push — order.placed is emitted at
@@ -42,8 +42,28 @@ const STATUS_TO_EVENT: Partial<Record<string, NotificationEventName>> = {
 };
 
 // ── PATCH /api/orders/[id] ─────────────────────────────────────────────────
+// This is the admin dashboard's live order-status-update endpoint (see
+// src/components/admin/orders/OrderTable.tsx's handleStatusChange).
+//
+// PHASE 3: admin-only, server-verified (previously had no authorization).
+//
+// PHASE 5: status mutation now goes entirely through changeOrderStatus()
+// (src/lib/orderStatus.ts) — the single, atomic, transition-validated
+// authority for Order.status. This route no longer reads-then-writes the
+// status itself, so it can no longer race a concurrent transition request,
+// and it can no longer accept an invalid jump (e.g. "received" straight to
+// "delivered"). /api/admin/orders/[id]/status implements the same action
+// and has been converged onto the same authority — see that file.
 export async function PATCH(req: NextRequest, context: RouteContext) {
     try {
+        const admin = await requireAdmin(req);
+        if (!admin) {
+            return NextResponse.json(
+                { success: false, message: "Admin access required" },
+                { status: 403 }
+            );
+        }
+
         await connectDB();
         const { id } = await context.params;
 
@@ -57,39 +77,52 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         const body = await req.json();
         const { status, whatsappSent } = body;
 
-        if (status && !VALID_STATUSES.includes(status)) {
+        if (status !== undefined && !isOrderStatus(status)) {
             return NextResponse.json(
                 { success: false, message: `Invalid status "${status}"` },
                 { status: 400 }
             );
         }
 
-        // Fetch existing order so we can detect the status transition
-        const existingOrder = await Order.findById(id).select("status user").lean();
-        if (!existingOrder) {
+        // Phase 14: cancellation ALWAYS requires a reason (admin or
+        // customer) — never silent. This generic status route is for the
+        // forward lifecycle only; route cancellation through the dedicated
+        // POST /api/admin/orders/[id]/cancel instead, which enforces that.
+        if (status === "cancelled") {
             return NextResponse.json(
-                { success: false, message: "Order not found" },
-                { status: 404 }
+                {
+                    success: false,
+                    message: "Use POST /api/admin/orders/{id}/cancel to cancel an order — a reason is required.",
+                },
+                { status: 400 }
             );
         }
 
-        const prevStatus = (existingOrder as any).status as string;
+        let orderDoc: Record<string, unknown> | null;
+        let transitionChanged = false;
 
-        const updatePayload: Record<string, unknown> = {};
-        if (status !== undefined)       updatePayload.status       = status;
-        if (whatsappSent !== undefined) updatePayload.whatsappSent = whatsappSent;
+        if (status !== undefined) {
+            const result = await changeOrderStatus(id, status, { changedBy: { type: "admin", userId: admin.userId } });
+            orderDoc = result.order;
+            transitionChanged = result.changed;
+        } else {
+            orderDoc = await Order.findById(id).lean();
+            if (!orderDoc) {
+                return NextResponse.json(
+                    { success: false, message: "Order not found" },
+                    { status: 404 }
+                );
+            }
+        }
 
-        const updatedOrder = await Order.findByIdAndUpdate(
-            id,
-            { $set: updatePayload },
-            { new: true, runValidators: true }
-        ).lean();
-
-        if (!updatedOrder) {
-            return NextResponse.json(
-                { success: false, message: "Order not found" },
-                { status: 404 }
-            );
+        // `whatsappSent` is an unrelated bookkeeping flag, not a status —
+        // applied as its own simple write, same as before.
+        if (whatsappSent !== undefined) {
+            orderDoc = await Order.findByIdAndUpdate(
+                id,
+                { $set: { whatsappSent } },
+                { new: true, runValidators: true }
+            ).lean();
         }
 
         // ── Transactional push notification ────────────────────────────────
@@ -99,14 +132,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         // Fire-and-forget with error isolation: a push failure must never
         // affect the status update response, same pattern as the loyalty
         // and email hooks below.
-        const orderUserId = (existingOrder as { user?: unknown }).user;
-        const pushEvent = status ? STATUS_TO_EVENT[status] : undefined;
+        const orderUserId = (orderDoc as { user?: unknown })?.user;
+        const pushEvent = status && transitionChanged ? STATUS_TO_EVENT[status] : undefined;
 
-        if (pushEvent && status !== prevStatus && orderUserId) {
+        if (pushEvent && orderUserId) {
             try {
                 notificationEngine.emit({
                     name: pushEvent,
-                    data: { orderId: (updatedOrder as any).orderId },
+                    data: { orderId: (orderDoc as any).orderId },
                     target: { userId: String(orderUserId) },
                 });
             } catch (pushErr) {
@@ -115,12 +148,14 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
         }
 
         // ── Loyalty trigger ────────────────────────────────────────────────
-        // Fire only on the exact transition into "delivered" — not on re-saves,
-        // and not if the order was already delivered before this PATCH.
+        // Fire only on the exact transition into "delivered" — not on
+        // re-saves/idempotent repeats (transitionChanged === false covers
+        // that), and not for guest orders. handleOrderDelivered() has its
+        // own independent LoyaltyLedger-based idempotency guard regardless
+        // (see loyaltyService.ts), so this is defense-in-depth, not the
+        // only protection against double-crediting.
         const isTransitionToDelivered =
-            status === "delivered" &&
-            prevStatus !== "delivered" &&
-            !!(existingOrder as any).user;   // guest orders have no user
+            status === "delivered" && transitionChanged && !!orderUserId;
 
         if (isTransitionToDelivered) {
             // Intentionally fire-and-forget with error isolation:
@@ -135,8 +170,6 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
             // Order-delivered email — fully awaited so it cannot be cut off
             // by the function returning before a detached promise resolves.
             try {
-                const orderUserId = (existingOrder as { user?: unknown }).user;
-
                 const freshUser = await User.findById(orderUserId)
                     .select("email name")
                     .lean() as { email?: string } | null;
@@ -144,7 +177,7 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
                 const customerEmail = freshUser?.email;
 
                 if (customerEmail) {
-                    const deliveredOrder = updatedOrder as { customerName: string; orderId: string };
+                    const deliveredOrder = orderDoc as { customerName: string; orderId: string };
                     await sendOrderDeliveredEmail(customerEmail, {
                         customerName: deliveredOrder.customerName,
                         orderId:      deliveredOrder.orderId,
@@ -155,19 +188,31 @@ export async function PATCH(req: NextRequest, context: RouteContext) {
             }
         }
 
-        return NextResponse.json({ success: true, order: updatedOrder });
-    } catch (error) {
+        return NextResponse.json({ success: true, order: orderDoc });
+    } catch (error: any) {
         console.error("PATCH_ORDER_ERROR", error);
         return NextResponse.json(
-            { success: false, message: "Failed to update order" },
-            { status: 500 }
+            { success: false, message: error?.message || "Failed to update order" },
+            { status: error?.status || 500 }
         );
     }
 }
 
 // ── GET /api/orders/[id] ───────────────────────────────────────────────────
-export async function GET(_req: NextRequest, context: RouteContext) {
+// PHASE 3: previously had NO authorization — any request that knew (or
+// enumerated) a Mongo _id could read another customer's full order PII
+// (name, phone, address, items, total). Now requires either the
+// authenticated owner of the order or an admin.
+export async function GET(req: NextRequest, context: RouteContext) {
     try {
+        const session = await requireUser(req);
+        if (!session) {
+            return NextResponse.json(
+                { success: false, message: "Not authenticated" },
+                { status: 401 }
+            );
+        }
+
         await connectDB();
         const { id } = await context.params;
 
@@ -180,6 +225,16 @@ export async function GET(_req: NextRequest, context: RouteContext) {
 
         const order = await Order.findById(id).lean();
         if (!order) {
+            return NextResponse.json(
+                { success: false, message: "Order not found" },
+                { status: 404 }
+            );
+        }
+
+        const isOwner = (order as any).user && String((order as any).user) === session.userId;
+        if (session.role !== "admin" && !isOwner) {
+            // Same 404 as "not found" — don't confirm to an unauthorized
+            // caller that this order ID exists at all (see Phase 3 §23).
             return NextResponse.json(
                 { success: false, message: "Order not found" },
                 { status: 404 }

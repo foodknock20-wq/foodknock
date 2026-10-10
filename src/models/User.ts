@@ -14,6 +14,31 @@ const AddressSchema = new Schema(
     { _id: false }
 );
 
+// ── Saved addresses (Phase 9 — Account 2.0) ─────────────────────────────
+// Additive array field, separate from the legacy single `address` object
+// above (which is left untouched for backward compatibility with
+// /api/auth/me and the checkout prefill). Each entry gets a real _id so
+// it can be individually edited/deleted/defaulted. lat/lng are optional
+// and unused today — reserved for Phase 10 (Location + Serviceability)
+// so that phase doesn't need another schema migration.
+const AddressItemSchema = new Schema(
+    {
+        label:                { type: String, trim: true, default: "" },
+        flatNo:                { type: String, trim: true, default: "" },
+        addressLine:           { type: String, trim: true, required: true },
+        locality:              { type: String, trim: true, default: "" },
+        city:                  { type: String, trim: true, required: true },
+        state:                 { type: String, trim: true, required: true },
+        pincode:               { type: String, trim: true, required: true },
+        landmark:              { type: String, trim: true, default: "" },
+        deliveryInstructions:  { type: String, trim: true, default: "" },
+        lat:                   { type: Number, default: null },
+        lng:                   { type: Number, default: null },
+        isDefault:             { type: Boolean, default: false },
+    },
+    { timestamps: true }
+);
+
 // ── Forgot Password / OTP state ─────────────────────────────────────────
 // Fully optional, additive subdocument. Existing user documents simply do
 // not have this key until they first use the forgot-password flow —
@@ -84,6 +109,7 @@ const UserSchema = new Schema(
         password: { type: String, required: true },
         role: { type: String, enum: ["user", "admin"], default: "user" },
         address: AddressSchema,
+        addresses: { type: [AddressItemSchema], default: [] },
         isActive: { type: Boolean, default: true },
 
         loyaltyPoints: { type: Number, default: 0 },
@@ -125,7 +151,8 @@ UserSchema.index({ phone: 1 });
 if (
     models.User &&
     (!models.User.schema.path("loginSecurity") ||
-        !models.User.schema.path("notificationPreferences"))
+        !models.User.schema.path("notificationPreferences") ||
+        !models.User.schema.path("addresses"))
 ) {
     mongoose.deleteModel("User");
 }

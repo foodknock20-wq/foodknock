@@ -55,11 +55,16 @@ const PushSubscriptionSchema = new Schema(
             default: "",
         },
 
-        // Whether this subscription is still valid
+        // Whether this subscription is still valid.
+        // Phase 17.4: removed a redundant `index: true` here — it declared
+        // the exact same standalone {isActive:1} index that the explicit
+        // schema.index({isActive:1}) below (Phase 17.2, F8) already
+        // creates, which Mongoose was warning about on every model load
+        // ("Duplicate schema index on {isActive:1}"). The explicit
+        // declaration below is kept — it carries the rationale comment.
         isActive: {
             type: Boolean,
             default: true,
-            index: true,
         },
 
         // Number of consecutive send failures (auto-deactivate after threshold)
@@ -80,6 +85,14 @@ const PushSubscriptionSchema = new Schema(
 
 // Compound index: find all active subs for a user quickly
 PushSubscriptionSchema.index({ user: 1, isActive: 1 });
+
+// Phase 17.2 (F8): the broadcast send path (webPushProvider.ts's
+// resolveTargets) queries {isActive:true} ALONE — the compound index
+// above can't serve that efficiently since isActive isn't its leading
+// key. A standalone index on isActive serves this exact query shape
+// without duplicating/conflicting with the index above (different leading
+// key, different purpose — user-scoped lookups vs. the broadcast fan-out).
+PushSubscriptionSchema.index({ isActive: 1 });
 
 const PushSubscription =
     models.PushSubscription || model("PushSubscription", PushSubscriptionSchema);

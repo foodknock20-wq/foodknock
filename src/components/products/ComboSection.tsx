@@ -12,11 +12,10 @@
 //   • ComboCard: memoized, useCallback on handleAdd
 
 import { useRef, useCallback, memo } from "react";
-import { useCartStore } from "@/store/cartStore";
-import { toast } from "react-hot-toast";
 import { ArrowRight, ChevronLeft, ChevronRight, Tag, Flame } from "lucide-react";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -59,26 +58,18 @@ const ComboCard = memo(function ComboCard({
     product: Product;
     index: number;
 }) {
-    const addItem = useCartStore(s => s.addItem);
+    const { handleAdd: addToCart } = useAddToCart();
     const badge = getBadge(index);
     const unavailable = !product.isAvailable || product.stock <= 0;
 
     const handleAdd = useCallback((e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
-        if (unavailable) { toast.error("This combo is currently unavailable"); return; }
-        addItem({
-            _id: product._id, name: product.name, price: product.price,
-            image: product.image, quantity: 1, stock: product.stock, category: product.category,
-        });
-        toast.success(`${product.name} added! 🎉`, {
-            style: { background: "#161210", color: "#fff", border: "1px solid rgba(255,92,26,0.3)", borderRadius: "14px" },
-            iconTheme: { primary: "#FF5C1A", secondary: "#161210" },
-        });
-    }, [addItem, product, unavailable]);
+        addToCart(product, `${product.name} added! 🎉`);
+    }, [addToCart, product]);
 
     return (
         <Link href={`/menu/${product.slug}`}
-            className={`fk-combo-card group relative flex flex-col overflow-hidden rounded-2xl bg-white transition-all duration-300 ${unavailable ? "opacity-60" : "hover:-translate-y-1 hover:shadow-2xl hover:shadow-orange-200/50"
+            className={`fk-combo-card group relative flex flex-col overflow-hidden rounded-2xl bg-fk-surface-elevated transition-all duration-300 ${unavailable ? "opacity-60" : "hover:-translate-y-1 hover:shadow-2xl hover:shadow-orange-200/50"
                 }`}
             style={{
                 minWidth: 234, maxWidth: 268,
@@ -112,8 +103,8 @@ const ComboCard = memo(function ComboCard({
                 )}
 
                 {unavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[2px] pointer-events-none">
-                        <span className="rounded-full border border-stone-300 bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-stone-500">
+                    <div className="absolute inset-0 flex items-center justify-center bg-fk-surface-elevated/40 backdrop-blur-[2px] pointer-events-none">
+                        <span className="rounded-full border border-fk-border bg-fk-surface-elevated/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-fk-text-secondary">
                             Unavailable
                         </span>
                     </div>
@@ -129,11 +120,11 @@ const ComboCard = memo(function ComboCard({
 
             {/* Content */}
             <div className="flex flex-1 flex-col p-3.5">
-                <h3 className="line-clamp-1 text-[14px] font-black leading-snug text-stone-900"
+                <h3 className="line-clamp-1 text-[14px] font-black leading-snug text-fk-text"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                     {product.name}
                 </h3>
-                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-stone-400">
+                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fk-text-tertiary">
                     {getItemsLine(product)}
                 </p>
                 <div className="my-3 border-t border-dashed border-stone-100" />
@@ -147,7 +138,7 @@ const ComboCard = memo(function ComboCard({
                             boxShadow: `0 4px 14px ${badge.from}40`,
                         } : {}),
                     }}
-                    className={`w-full rounded-xl py-2.5 text-[12px] font-black transition-all duration-200 ${unavailable ? "cursor-not-allowed bg-stone-100 text-stone-400" : "text-white active:scale-95"
+                    className={`w-full rounded-xl py-2.5 text-[12px] font-black transition-all duration-200 ${unavailable ? "cursor-not-allowed bg-stone-100 text-fk-text-tertiary" : "text-white active:scale-95"
                         }`}>
                     {unavailable ? "Unavailable" : "Add to Cart 🛒"}
                 </button>
@@ -182,7 +173,7 @@ const ComboSection = memo(function ComboSection({
         <section
             id="section-combos"
             className="relative overflow-hidden border-b border-stone-100"
-            style={{ background: "linear-gradient(160deg,#161210 0%,#1e1612 60%,#201814 100%)" }}>
+            style={{ background: "linear-gradient(160deg,var(--fk-charcoal) 0%,var(--fk-charcoal-elevated) 60%,#201814 100%)" }}>
 
             <div aria-hidden className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full opacity-20 blur-3xl"
                 style={{ background: "radial-gradient(circle,#FF5C1A,transparent 70%)" }} />
@@ -219,15 +210,15 @@ const ComboSection = memo(function ComboSection({
 
                     <div className="hidden items-center gap-2 md:flex">
                         <button onClick={scrollLeft}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/50 transition-all hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-400">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-fk-surface-elevated/5 text-white/50 transition-all hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-400">
                             <ChevronLeft size={15} strokeWidth={2.5} />
                         </button>
                         <button onClick={scrollRight}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/50 transition-all hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-400">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-fk-surface-elevated/5 text-white/50 transition-all hover:border-orange-500/40 hover:bg-orange-500/10 hover:text-orange-400">
                             <ChevronRight size={15} strokeWidth={2.5} />
                         </button>
                         <button onClick={onViewAll}
-                            className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-white/60 transition-all hover:border-orange-500/30 hover:bg-orange-500/10 hover:text-orange-400">
+                            className="group flex items-center gap-1.5 rounded-full border border-white/10 bg-fk-surface-elevated/5 px-4 py-2 text-xs font-bold text-white/60 transition-all hover:border-orange-500/30 hover:bg-orange-500/10 hover:text-orange-400">
                             View All
                             <ArrowRight size={12} className="transition-transform group-hover:translate-x-0.5" />
                         </button>
@@ -235,7 +226,7 @@ const ComboSection = memo(function ComboSection({
                 </div>
 
                 {/* Savings teaser */}
-                <div className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-white/8 bg-white/5 px-4 py-2.5">
+                <div className="mb-5 inline-flex items-center gap-2 rounded-2xl border border-white/8 bg-fk-surface-elevated/5 px-4 py-2.5">
                     <span className="text-lg">💸</span>
                     <p className="text-[12px] font-semibold text-white/50">
                         Combos save you{" "}
@@ -256,7 +247,7 @@ const ComboSection = memo(function ComboSection({
 
                     {/* View-all tile */}
                     <div
-                        className="shrink-0 snap-start flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 px-5 text-center transition-all hover:border-orange-500/30 hover:bg-orange-500/8"
+                        className="shrink-0 snap-start flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-white/10 bg-fk-surface-elevated/5 px-5 text-center transition-all hover:border-orange-500/30 hover:bg-orange-500/8"
                         style={{ minWidth: 126, touchAction: "auto" }}
                         onClick={onViewAll}>
                         <div className="mb-2.5 flex h-12 w-12 items-center justify-center rounded-2xl"
@@ -273,7 +264,7 @@ const ComboSection = memo(function ComboSection({
                 <div className="mt-5 md:hidden">
                     <button onClick={onViewAll}
                         style={{ touchAction: "auto" }}
-                        className="group flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-bold text-white/60 transition-all hover:border-orange-500/30 hover:text-orange-400">
+                        className="group flex items-center gap-2 rounded-full border border-white/10 bg-fk-surface-elevated/5 px-5 py-2.5 text-sm font-bold text-white/60 transition-all hover:border-orange-500/30 hover:text-orange-400">
                         See All {combos.length} Combos
                         <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
                     </button>

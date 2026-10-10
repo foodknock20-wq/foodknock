@@ -26,7 +26,7 @@ export default async function NotificationSettingsPage() {
     const userId = await getAuthedUserId();
 
     if (!userId) {
-        redirect("/auth?redirect=/notifications/settings");
+        redirect("/auth?mode=login&redirect=/notifications/settings");
     }
 
     const preferences = await getNotificationPreferences(userId);

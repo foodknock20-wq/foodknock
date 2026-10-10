@@ -4,11 +4,16 @@
 // Premium dark review management table — FoodKnock
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
 import {
-    Search, MessageSquare, Star, CheckCircle2,
-    XCircle, Trash2, ChevronDown, Loader2,
+    MessageSquare, Star, CheckCircle2,
+    XCircle, Trash2, Loader2,
 } from "lucide-react";
+
+// Phase 15A: search + status filter are now server-side (AdminListSearchBar
+// + ReviewStatusFilter on the parent page) — this component only ever
+// receives the current page's rows.
 
 // ─── Types ────────────────────────────────────────────────────────────────
 export type ReviewRow = {
@@ -109,25 +114,10 @@ function ActionButtons({
 }
 
 // ─── Main component ───────────────────────────────────────────────────────
-export default function ReviewTable({ reviews: initialReviews }: Props) {
-    const [reviews,    setReviews]    = useState<ReviewRow[]>(initialReviews);
-    const [search,     setSearch]     = useState("");
-    const [filter,     setFilter]     = useState<"all" | "approved" | "pending">("all");
+export default function ReviewTable({ reviews }: Props) {
+    const router = useRouter();
     const [loadingId,  setLoadingId]  = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
-
-    const visible = reviews.filter((r) => {
-        const matchesFilter =
-            filter === "all" ||
-            (filter === "approved" && r.isApproved) ||
-            (filter === "pending"  && !r.isApproved);
-        const q = search.toLowerCase();
-        const matchesSearch =
-            !q ||
-            r.userName.toLowerCase().includes(q) ||
-            r.comment.toLowerCase().includes(q);
-        return matchesFilter && matchesSearch;
-    });
 
     const handleToggleApprove = async (review: ReviewRow, approve: boolean) => {
         setLoadingId(review._id);
@@ -139,9 +129,6 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
             });
             const data = await res.json();
             if (!res.ok) { toast.error(data.message ?? "Failed to update review"); return; }
-            setReviews((prev) =>
-                prev.map((r) => r._id === review._id ? { ...r, isApproved: approve } : r)
-            );
             toast.success(approve ? "Review approved" : "Review unapproved", {
                 style: {
                     background: "#0f0f16", color: "#e7e5e4",
@@ -149,6 +136,7 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
                     borderRadius: "14px", fontSize: "13px", fontWeight: "700",
                 },
             });
+            router.refresh();
         } catch {
             toast.error("Network error. Please try again.");
         } finally {
@@ -163,7 +151,6 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
             const res  = await fetch(`/api/reviews/${id}`, { method: "DELETE" });
             const data = await res.json();
             if (!res.ok) { toast.error(data.message ?? "Failed to delete"); return; }
-            setReviews((prev) => prev.filter((r) => r._id !== id));
             toast.success("Review deleted", {
                 style: {
                     background: "#0f0f16", color: "#e7e5e4",
@@ -171,6 +158,7 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
                     borderRadius: "14px", fontSize: "13px", fontWeight: "700",
                 },
             });
+            router.refresh();
         } catch {
             toast.error("Network error. Please try again.");
         } finally {
@@ -180,50 +168,15 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
 
     return (
         <>
-            {/* ── Controls ── */}
-            <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="relative flex-1">
-                    <Search
-                        size={13}
-                        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-stone-600"
-                        strokeWidth={2}
-                    />
-                    <input
-                        type="text"
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search by name or comment…"
-                        className="w-full rounded-xl border border-white/[0.07] bg-white/[0.04] py-2.5 pl-9 pr-4 text-sm text-stone-300 placeholder:text-stone-700 transition-colors focus:border-amber-500/40 focus:bg-white/[0.05] focus:outline-none focus:ring-2 focus:ring-amber-500/15"
-                    />
-                </div>
-
-                <div className="relative shrink-0">
-                    <select
-                        value={filter}
-                        onChange={(e) => setFilter(e.target.value as "all" | "approved" | "pending")}
-                        className="w-full appearance-none rounded-xl border border-white/[0.07] bg-white/[0.04] py-2.5 pl-4 pr-9 text-sm text-stone-300 transition-colors focus:border-amber-500/40 focus:outline-none hover:border-white/10"
-                    >
-                        <option value="all"      className="bg-[#0f0f16]">All Reviews</option>
-                        <option value="approved" className="bg-[#0f0f16]">Approved</option>
-                        <option value="pending"  className="bg-[#0f0f16]">Pending</option>
-                    </select>
-                    <ChevronDown size={12} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-stone-600" />
-                </div>
-            </div>
-
             {/* ── Empty state ── */}
-            {visible.length === 0 ? (
+            {reviews.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-24 text-center">
                     <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-white/[0.06] bg-white/[0.03]">
                         <MessageSquare size={26} className="text-stone-600" strokeWidth={1.5} />
                     </div>
-                    <p className="text-base font-black text-white">
-                        {reviews.length === 0 ? "No reviews yet" : "No reviews match your filter"}
-                    </p>
+                    <p className="text-base font-black text-white">No reviews found</p>
                     <p className="mt-1.5 text-sm text-stone-600">
-                        {reviews.length === 0
-                            ? "Customer reviews will appear here."
-                            : "Try changing the status filter or search term."}
+                        Try changing the status filter or search term.
                     </p>
                 </div>
             ) : (
@@ -241,7 +194,7 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.03]">
-                                {visible.map((review) => (
+                                {reviews.map((review) => (
                                     <tr key={review._id} className="group transition-colors hover:bg-white/[0.02]">
 
                                         {/* Customer */}
@@ -291,7 +244,7 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
 
                     {/* ── Mobile cards ── */}
                     <div className="space-y-3 md:hidden">
-                        {visible.map((review) => (
+                        {reviews.map((review) => (
                             <div key={review._id} className="rounded-2xl border border-white/[0.06] bg-[#0f0f16] p-4">
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="flex items-center gap-2.5">
@@ -305,7 +258,7 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
                                 </div>
 
                                 <p className="mt-3 text-sm leading-relaxed text-stone-500">
-                                    "{review.comment}"
+                                    &quot;{review.comment}&quot;
                                 </p>
 
                                 <div className="mt-3 flex items-center justify-between border-t border-white/[0.04] pt-3">
@@ -327,9 +280,6 @@ export default function ReviewTable({ reviews: initialReviews }: Props) {
                         ))}
                     </div>
 
-                    <p className="mt-3 text-right text-[11px] text-stone-700">
-                        {visible.length} of {reviews.length} review{reviews.length !== 1 ? "s" : ""}
-                    </p>
                 </>
             )}
         </>

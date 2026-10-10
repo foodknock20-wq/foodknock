@@ -41,8 +41,12 @@ export async function GET(req: Request) {
     }
 
     try {
+        // PHASE 6: bounded, consistent with the other admin list routes —
+        // one submission per participating user, so low volume today, but
+        // unbounded growth was still a latent risk.
         const submissions = await ReviewReward.find()
             .sort({ createdAt: -1 })
+            .limit(500)
             .populate({ path: "user", select: "name email phone", model: User })
             .lean<Array<{
                 _id:           unknown;

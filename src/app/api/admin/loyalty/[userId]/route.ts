@@ -12,25 +12,16 @@ import { connectDB }   from "@/lib/db";
 import User            from "@/models/User";
 import LoyaltyLedger  from "@/models/LoyaltyLedger";
 import Order           from "@/models/Order";
-import { verifyToken } from "@/lib/auth";
+import { requireAdmin } from "@/lib/apiAuth";
 
 type RouteContext = { params: Promise<{ userId: string }> };
 
-function isAdmin(req: NextRequest): boolean {
-    const cookieHeader = req.headers.get("cookie") ?? "";
-    const match        = cookieHeader.match(/(?:^|;\s*)token=([^;]+)/);
-    const token        = match ? decodeURIComponent(match[1]) : null;
-    if (!token) return false;
-    try {
-        const decoded = verifyToken(token) as { role?: string };
-        return decoded?.role === "admin";
-    } catch {
-        return false;
-    }
-}
+// Phase 17.1B — see route.ts's sibling comment: now uses the centralized,
+// DB-verified requireAdmin() instead of a hand-rolled JWT-claim-only check.
 
 export async function GET(req: NextRequest, context: RouteContext) {
-    if (!isAdmin(req)) {
+    const admin = await requireAdmin(req);
+    if (!admin) {
         return NextResponse.json({ success: false, message: "Forbidden" }, { status: 403 });
     }
 
@@ -47,8 +38,12 @@ export async function GET(req: NextRequest, context: RouteContext) {
                 .select("name email phone loyaltyPoints referralCode referredBy deliveredOrderCount")
                 .populate("referredBy", "name email")
                 .lean(),
+            // PHASE 6: bounded, consistent with the user-facing /api/loyalty
+            // ledger limit — an admin viewing one customer's history doesn't
+            // need an unbounded fetch either.
             LoyaltyLedger.find({ user: userId })
                 .sort({ createdAt: -1 })
+                .limit(200)
                 .populate("order",        "orderId totalAmount createdAt")
                 .populate("referredUser", "name email")
                 .lean(),

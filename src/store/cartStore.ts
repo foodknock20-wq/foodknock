@@ -29,6 +29,8 @@ type CartStore = {
   removeItem: (id: string) => void;
   increaseQty: (id: string) => void;
   decreaseQty: (id: string) => void;
+  setQuantity: (id: string, quantity: number) => void;
+  updateItem: (id: string, patch: Partial<Pick<CartItem, "price" | "stock">>) => void;
   clearCart: () => void;
   getTotalItems: () => number;
   getTotalPrice: () => number;
@@ -157,6 +159,40 @@ export const useCartStore = create<CartStore>()(
         } catch {
           set({ items: [] });
         }
+      },
+
+      // PHASE 4: lets the cart page set an exact, server-validated quantity
+      // (e.g. "reduce to 2 available") instead of only +/-1 stepping.
+      // Clamped to [0, stock] exactly like increaseQty; 0 removes the item,
+      // consistent with decreaseQty's existing behavior.
+      setQuantity: (id, quantity) => {
+        try {
+          const items = get().items;
+          const target = items.find((i) => i._id === id);
+          if (!target) return;
+
+          const clamped = Math.max(0, Math.min(Math.floor(quantity), target.stock));
+          if (clamped <= 0) {
+            set({ items: items.filter((i) => i._id !== id) });
+            return;
+          }
+          set({
+            items: items.map((i) => (i._id === id ? { ...i, quantity: clamped } : i)),
+          });
+        } catch {
+          set({ items: [] });
+        }
+      },
+
+      // PHASE 4: syncs server-authoritative price/stock onto an existing
+      // cart line after validation (e.g. price changed from ₹199 → ₹229,
+      // or stock dropped) — never changes identity (_id) or quantity.
+      updateItem: (id, patch) => {
+        try {
+          set({
+            items: get().items.map((i) => (i._id === id ? { ...i, ...patch } : i)),
+          });
+        } catch {}
       },
 
       clearCart: () => {

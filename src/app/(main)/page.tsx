@@ -1,38 +1,56 @@
 // src/app/(main)/page.tsx
-// FIXED:
-//   1. Removed full product table scan — now fetches only 6 products with limit()
-//   2. Removed JS-level filter after full fetch — DB does the work
-//   3. Review query limited and field-projected
-//   4. Added force-dynamic
-// NEW FEATURE: Smart category navigation — links now carry ?category=X query param
-// NEW FEATURE: BestSellers section added to homepage
+//
+// FoodKnock UI 2.0 — Phase 2: Home 2.0. Server-first — all data fetching
+// stays here (extended getHomeData() + a few sibling read-only lib calls,
+// all batched into one Promise.all for true parallelism). Client
+// components are limited to the genuinely interactive pieces (HeroCarousel,
+// ProductRail's cart wiring, HomeSearchEntry, LoyaltyPromoStrip) — see each
+// file's own header for why. No business logic (pricing/cart/coupons/
+// loyalty/serviceability authority) lives here or was changed — only real,
+// already-existing data sources are read.
 
 export const dynamic = "force-dynamic";
 
-import Link from "next/link";
-import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
-import HeroSection from "@/components/home/HeroSection";
-import FeaturesSection from "@/components/home/FeaturesSection";
-import OfferBanner from "@/components/home/OfferBanner";
-import { ArrowRight, Star, ChevronRight } from "lucide-react";
-import FeaturedProductCard from "@/components/home/FeaturedProductCard";
-// NEW FEATURE: Import BestSellers component
-import BestSellers from "@/components/home/BestSellers";
 import { connectDB } from "@/lib/db";
 import Product from "@/models/Product";
 import Review from "@/models/Review";
+import { getShopStatus } from "@/models/Shop";
+import { describeCloseReason } from "@/lib/shopCloseReasons";
+import { getCategoriesWithCounts, type CategoryWithCount } from "@/lib/catalogCategories";
+import { getActiveCampaigns, type PublicCampaign, type PublicOffer } from "@/lib/campaignPublic";
+import { getActivePublicOffers } from "@/lib/offersPublic";
+import { FREE_DELIVERY_AT } from "@/lib/delivery";
+import { computeSiteStats } from "@/lib/siteStats";
+
+import HomeSearchEntry from "@/components/home/HomeSearchEntry";
+import ShopClosedBanner from "@/components/home/ShopClosedBanner";
+import FreeDeliveryStrip from "@/components/home/FreeDeliveryStrip";
+import CategoryRail from "@/components/home/CategoryRail";
+import HeroCarousel, { type HeroSlide } from "@/components/home/HeroCarousel";
+import ProductRail, { type RailProduct } from "@/components/home/ProductRail";
+import LoyaltyPromoStrip from "@/components/home/LoyaltyPromoStrip";
+import FeaturesSection from "@/components/home/FeaturesSection";
+import OfferBanner from "@/components/home/OfferBanner";
+import TestimonialsStrip from "@/components/home/TestimonialsStrip";
+import FinalCta from "@/components/home/FinalCta";
+import ReferralPill from "@/components/home/ReferralPill";
+import SpinWinCTA from "@/components/home/SpinWinCTA";
 
 export type HomeProduct = {
     _id: string;
     name: string;
+    slug: string;
     description?: string;
     shortDescription?: string;
     price: number;
     compareAtPrice?: number | null;
     category: string;
     image: string;
+    stock: number;
+    isAvailable: boolean;
     isFeatured: boolean;
+    rating: number | null;
 };
 
 export type HomeReview = {
@@ -43,106 +61,159 @@ export type HomeReview = {
     createdAt: string;
 };
 
+// FoodKnock Phase 6 — `avgRating` is only ever a real figure now. It used
+// to fall back to a hardcoded "4.9" whenever there were zero approved
+// reviews (same fake-rating-fallback pattern already fixed elsewhere in
+// Phase 4/5) — `null` means "no real rating yet," and OfferBanner now
+// hides the rating stat entirely in that case instead of showing a
+// made-up number. `happyCustomers` removed outright: it was a fabricated
+// figure (`totalReviews * 6`, floored at 500, or a flat 2400 fallback)
+// that was never actually rendered anywhere — dead fake-data computation.
+//
+// CRITICAL FINAL FIX — the "real figure" above was still WRONG, just not
+// fabricated: `totalReviews`/`avgRating` were computed from the SAME
+// `Review.find({isApproved:true}).limit(10)` query used to source the
+// homepage's 3-card testimonial strip. With more than 10 approved reviews
+// in the database, that query silently returns only the 10 most recent —
+// so the displayed "rating" and "count" were real numbers, just real
+// numbers for the wrong 10-review subset, never the actual site-wide
+// total (e.g. an owner-reported ~88 approved reviews would still render
+// as "10 reviews" and whatever those 10 happened to average, forever).
+// Fixed by mirroring the already-correct, already-reviewed pattern this
+// exact problem was solved with on src/app/(main)/reviews/page.tsx: a
+// cheap, parallel `Review.countDocuments({isApproved:true})` for the
+// authoritative total, and a `.limit(200)` (not 10) bounded fetch — large
+// enough that avgRating is the TRUE average unless/until approved reviews
+// ever exceed 200, matching that page's own documented rationale for not
+// running a separate aggregation purely for cosmetic stats. This page
+// still only renders 3 of them (`recentReviews`), same as before.
 export type SiteStats = {
-    avgRating: string;
+    avgRating: string | null;
     totalReviews: number;
-    happyCustomers: number;
 };
+
+const PRODUCT_SELECT = "_id name slug shortDescription price compareAtPrice category image stock isAvailable isFeatured rating";
 
 // ─── Data fetcher ──────────────────────────────────────────────────────────
 async function getHomeData(): Promise<{
     featuredProducts: HomeProduct[];
-    // NEW FEATURE: bestSellerProducts fetched for BestSellers section
-    bestSellerProducts: HomeProduct[];
+    popularProducts: HomeProduct[];
+    valueProducts: HomeProduct[];
+    comboProducts: HomeProduct[];
     recentReviews: HomeReview[];
     stats: SiteStats;
+    categories: CategoryWithCount[];
+    isShopOpen: boolean;
+    closedReasonLabel: string | null;
+    campaigns: PublicCampaign[];
+    offers: PublicOffer[];
 }> {
     try {
         await connectDB();
 
-        const [rawProducts, rawBestSellers, approvedReviews] = await Promise.all([
-            // ✅ FIXED: DB-level sort + limit instead of fetching ALL then slicing in JS
-            //    Uses compound index: { isAvailable:1, stock:1, isFeatured:-1, createdAt:-1 }
+        const [
+            rawProducts, rawPopular, rawValue, rawCombos, approvedReviews, totalApprovedReviews,
+            categories, shopStatus, campaigns, offers,
+        ] = await Promise.all([
             Product.find({ isAvailable: true, stock: { $gt: 0 } })
                 .sort({ isFeatured: -1, createdAt: -1 })
-                .limit(6)                         // ✅ Only 6 docs — not entire collection
-                .select("_id name shortDescription price compareAtPrice category image isFeatured")
+                .limit(6)
+                .select(PRODUCT_SELECT)
                 .lean(),
 
-            // NEW FEATURE: PERFORMANCE SAFE — fetch best sellers from priority categories
-            // Limited to 10 docs, DB-level filter, no extra round trip cost
-            // Uses isFeatured + category filter to get "most loved" items
+            // "Popular Right Now" (formerly "Best Sellers") — same
+            // isFeatured + hardcoded category-priority + recency pool as
+            // before, just honestly relabeled: there is no real sales-count
+            // metric on Product to call this "best sellers".
             Product.find({
                 isAvailable: true,
                 stock: { $gt: 0 },
-                category: {
-                    $in: [
-                        "Pizza", "Ice Cream", "Thali", "Momos",
-                        "Sandwich", "Shake", "Burger", "Coffee"
-                    ]
-                }
+                category: { $in: ["Pizza", "Ice Cream", "Thali", "Momos", "Sandwich", "Shake", "Burger", "Coffee"] },
             })
                 .sort({ isFeatured: -1, createdAt: -1 })
-                .limit(20) // fetch 20, dedupe to 10 in JS per-category logic
-                .select("_id name shortDescription price compareAtPrice category image isFeatured")
+                .limit(20)
+                .select(PRODUCT_SELECT)
                 .lean(),
 
-            // ✅ FIXED: limit + projection — don't pull full review docs
+            // FoodKnock UI 2.0 — Phase 2: new "Under ₹99" value section.
+            Product.find({ isAvailable: true, stock: { $gt: 0 }, price: { $lte: 99 } })
+                .sort({ isFeatured: -1, createdAt: -1 })
+                .limit(10)
+                .select(PRODUCT_SELECT)
+                .lean(),
+
+            // FoodKnock UI 2.0 — Phase 2: new "Combo Deals" section — same
+            // real "Combos" category value src/components/products/ComboSection.tsx
+            // already filters client-side on Menu, queried server-side here.
+            Product.find({ isAvailable: true, stock: { $gt: 0 }, category: /^combos$/i })
+                .sort({ isFeatured: -1, createdAt: -1 })
+                .limit(10)
+                .select(PRODUCT_SELECT)
+                .lean(),
+
             Review.find({ isApproved: true })
                 .sort({ createdAt: -1 })
-                .limit(10)
+                .limit(200)
                 .select("userName rating comment createdAt")
                 .lean(),
+            Review.countDocuments({ isApproved: true }),
+
+            getCategoriesWithCounts(),
+            getShopStatus().catch(() => ({ isOpen: true, closedReasonCode: null, closedReasonText: null, closedAt: null })),
+            getActiveCampaigns(5),
+            getActivePublicOffers(5),
         ]);
 
         const mapProduct = (p: any): HomeProduct => ({
             _id: String(p._id),
             name: p.name,
+            slug: p.slug,
             shortDescription: p.shortDescription,
             price: p.price,
             compareAtPrice: p.compareAtPrice ?? null,
             category: p.category,
             image: p.image,
+            stock: p.stock,
+            isAvailable: p.isAvailable,
             isFeatured: p.isFeatured,
+            rating: typeof p.rating === "number" ? p.rating : null,
         });
 
         const featuredProducts = (rawProducts as any[]).map(mapProduct);
+        const valueProducts = (rawValue as any[]).map(mapProduct);
+        const comboProducts = (rawCombos as any[]).map(mapProduct);
 
-        // NEW FEATURE: PERFORMANCE SAFE — dedupe by category (max 2 per cat, max 10 total)
-        // Pure JS, no extra DB call — runs on already-fetched data
-        const bestSellerProducts = (() => {
+        // Same dedupe-by-category logic as before (max 2 per category, 10 total).
+        const popularProducts = (() => {
             const catCount: Record<string, number> = {};
             const result: HomeProduct[] = [];
-            const PRIORITY_ORDER = [
-                "Ice Cream", "Thali", "Pizza", "Burger",
-                "Momos", "Sandwich", "Shake", "Coffee"
-            ];
-
-            // Sort by priority order first, then isFeatured
-            const sorted = (rawBestSellers as any[]).sort((a, b) => {
+            const PRIORITY_ORDER = ["Ice Cream", "Thali", "Pizza", "Burger", "Momos", "Sandwich", "Shake", "Coffee"];
+            const sorted = (rawPopular as any[]).sort((a, b) => {
                 const ai = PRIORITY_ORDER.indexOf(a.category);
                 const bi = PRIORITY_ORDER.indexOf(b.category);
                 if (ai !== bi) return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
                 return (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0);
             });
-
             for (const p of sorted) {
                 const cat = p.category;
                 catCount[cat] = (catCount[cat] || 0) + 1;
-                if (catCount[cat] <= 2 && result.length < 10) {
-                    result.push(mapProduct(p));
-                }
+                if (catCount[cat] <= 2 && result.length < 10) result.push(mapProduct(p));
                 if (result.length >= 10) break;
             }
             return result;
         })();
 
-        const totalReviews = (approvedReviews as any[]).length;
-        const avgNum =
-            totalReviews > 0
-                ? (approvedReviews as any[]).reduce((s: number, r: any) => s + (r.rating || 0), 0) / totalReviews
-                : 4.9;
-        const happyCustomers = totalReviews > 0 ? Math.max(totalReviews * 6, 500) : 2400;
+        // `totalReviews` is the authoritative `countDocuments` result, NOT
+        // `approvedReviews.length` — the latter is capped at 200 and would
+        // silently under-report again once approved reviews pass that
+        // bound. `avgNum`/`totalReviews` computation itself is the pure,
+        // directly-tested `computeSiteStats()` (src/lib/siteStats.ts) — see
+        // that file's header for why this was pulled out as its own
+        // function rather than left inline.
+        const { avgRating, totalReviews } = computeSiteStats(
+            (approvedReviews as any[]).map((r: any) => r.rating || 0),
+            totalApprovedReviews as number
+        );
 
         const recentReviews = (approvedReviews as any[])
             .filter((r: any) => r.comment && r.comment.trim().length >= 10)
@@ -157,257 +228,193 @@ async function getHomeData(): Promise<{
 
         return {
             featuredProducts,
-            bestSellerProducts,
+            popularProducts,
+            valueProducts,
+            comboProducts,
             recentReviews,
-            stats: {
-                avgRating: avgNum.toFixed(1),
-                totalReviews,
-                happyCustomers: Math.round(happyCustomers / 100) * 100,
-            },
+            stats: { avgRating, totalReviews },
+            categories,
+            isShopOpen: shopStatus.isOpen,
+            closedReasonLabel: describeCloseReason(shopStatus.closedReasonCode, shopStatus.closedReasonText),
+            campaigns,
+            offers,
         };
     } catch {
         return {
-            featuredProducts: [],
-            bestSellerProducts: [],
-            recentReviews: [],
-            stats: { avgRating: "4.9", totalReviews: 0, happyCustomers: 2400 },
+            featuredProducts: [], popularProducts: [], valueProducts: [], comboProducts: [],
+            recentReviews: [], stats: { avgRating: null, totalReviews: 0 },
+            categories: [], isShopOpen: true, closedReasonLabel: null, campaigns: [], offers: [],
         };
     }
 }
 
-// ─── Categories strip ──────────────────────────────────────────────────────
-// NEW FEATURE: Each category now has a proper `category` key matching MenuClient categories
-const categories = [
-    { emoji: "🍔", label: "Burgers", category: "Burger" },
-    { emoji: "🍕", label: "Pizza", category: "Pizza" },
-    { emoji: "🥤", label: "Shakes", category: "Shake" },
-    { emoji: "🧃", label: "Juice", category: "Juice" },
-    { emoji: "🍟", label: "Snacks", category: "Snacks" },
-    { emoji: "🥟", label: "Momos", category: "Momos" },
-    { emoji: "🍦", label: "Ice Cream", category: "Ice Cream" },
-];
-
-function CategoriesStrip() {
-    return (
-        <section className="border-b border-amber-100/80 bg-white py-14">
-            <div className="mx-auto max-w-7xl px-4 md:px-8">
-                <div className="mb-8 flex items-end justify-between">
-                    <div>
-                        <p className="mb-1 text-[11px] font-black uppercase tracking-[0.22em] text-orange-500">Explore</p>
-                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                            What are you craving?
-                        </h2>
-                    </div>
-                    {/* NEW FEATURE: "Full Menu" link now goes to /menu (no category = show all) */}
-                    <Link href="/menu" className="group hidden items-center gap-1.5 text-sm font-bold text-amber-700 transition-colors hover:text-orange-600 md:inline-flex">
-                        Full Menu <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                </div>
-                <div className="no-scrollbar flex gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-4 lg:grid-cols-8">
-                    {categories.map(({ emoji, label, category }) => (
-                        // NEW FEATURE: href now uses ?category=X for smart navigation
-                        <Link
-                            key={label}
-                            href={`/menu?category=${encodeURIComponent(category)}`}
-                            className="group flex shrink-0 flex-col items-center gap-2.5 rounded-2xl border border-amber-100 bg-amber-50/50 p-4 text-center transition-all duration-200 hover:border-orange-300 hover:bg-orange-50 hover:shadow-md hover:shadow-orange-100/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400"
-                            style={{ minWidth: "80px" }}
-                        >
-                            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-amber-100 bg-white text-2xl shadow-sm transition-transform duration-200 group-hover:scale-110">
-                                {emoji}
-                            </div>
-                            <p className="text-xs font-bold text-stone-700 group-hover:text-orange-600">{label}</p>
-                        </Link>
-                    ))}
-                </div>
-            </div>
-        </section>
-    );
+// Converts a HomeProduct into the shape ProductRail/ProductCardShell expect.
+function toRailProduct(p: HomeProduct): RailProduct {
+    return {
+        _id: p._id,
+        name: p.name,
+        price: p.price,
+        compareAtPrice: p.compareAtPrice,
+        image: p.image,
+        stock: p.stock,
+        isAvailable: p.isAvailable,
+        slug: p.slug,
+        category: p.category,
+        rating: p.rating,
+    };
 }
 
-function FeaturedProducts({ products }: { products: HomeProduct[] }) {
-    if (products.length === 0) {
-        return (
-            <section className="bg-[#FFFBF5] py-16">
-                <div className="mx-auto max-w-7xl px-4 text-center md:px-8">
-                    <p className="text-stone-400">Menu items loading soon — check back shortly!</p>
-                    <Link href="/menu" className="mt-4 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-black text-white" style={{ background: "linear-gradient(135deg, #FF5C1A, #FF8C42)" }}>
-                        View Full Menu <ArrowRight size={14} />
-                    </Link>
-                </div>
-            </section>
-        );
+// Pre-Phase 17 — Home/Search polish: the one promo scroller's slide mix —
+// active campaigns and storewide offers are PRIORITIZED (real data from
+// the existing campaign/offer engine, src/lib/campaignPublic.ts /
+// offersPublic.ts — no second campaign model, no invented dates/links),
+// then topped up with real, currently-orderable products so the strip
+// reaches ~5-6 slides without ever duplicating a product or fabricating
+// content. Offers have no real banner/product image of their own, so
+// their slide uses `image: null` (HeroCarousel renders a restrained
+// gradient instead of a mismatched photo or the FoodKnock logo).
+const TARGET_SLIDE_COUNT = 6;
+
+function buildPromoSlides(campaigns: PublicCampaign[], offers: PublicOffer[], featuredProducts: HomeProduct[]): HeroSlide[] {
+    const slides: HeroSlide[] = [];
+
+    for (const c of campaigns) {
+        slides.push({
+            id: `campaign-${c._id}`,
+            // A genuine campaign banner is real campaign artwork — safe to
+            // use directly. No banner on file → text-first slide, never a
+            // substituted/mismatched photo.
+            image: c.heroImage || null,
+            eyebrow: "FoodKnock Specials",
+            title: c.title,
+            subtitle: c.shortDescription || undefined,
+            badge: null,
+            countdownEndAt: c.endAt,
+            ctaLabel: "Explore",
+            ctaHref: `/campaigns/${c.slug}`,
+        });
     }
 
-    return (
-        <section className="bg-[#FFFBF5] py-16 md:py-20">
-            <div className="mx-auto max-w-7xl px-4 md:px-8">
-                <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-orange-200 bg-orange-50 px-4 py-1.5">
-                            <span className="flex h-2 w-2 rounded-full bg-orange-500 shadow-[0_0_6px_rgba(255,92,26,0.7)]" />
-                            <span className="text-[11px] font-black uppercase tracking-[0.22em] text-orange-600">Today&apos;s Picks</span>
-                        </div>
-                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                            Fresh &amp; Ready to Order
-                        </h2>
-                        <p className="mt-1.5 text-sm text-stone-500">Hot favourites made fresh — pick your craving and order in seconds.</p>
-                    </div>
-                    <Link href="/menu" className="group flex shrink-0 items-center gap-2 self-start rounded-full border border-stone-200 bg-white px-5 py-2.5 text-sm font-bold text-stone-600 shadow-sm transition-all hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600 sm:self-auto">
-                        View Full Menu <ArrowRight size={14} className="transition-transform group-hover:translate-x-1" />
-                    </Link>
-                </div>
-                <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
-                    {products.map((product) => (
-                        <FeaturedProductCard key={product._id} product={product} />
-                    ))}
-                </div>
-                <div className="mt-10 flex flex-col items-center gap-3 rounded-3xl border border-amber-100/80 p-6 text-center md:flex-row md:justify-between md:text-left" style={{ background: "linear-gradient(135deg, #fffbf5 0%, #fff7ed 100%)" }}>
-                    <div>
-                        <p className="font-black text-stone-900">Hungry for more?</p>
-                        <p className="text-sm text-stone-500">Browse our full menu of 100+ items across all categories.</p>
-                    </div>
-                    <Link href="/menu" className="inline-flex shrink-0 items-center gap-2 rounded-full px-7 py-3 text-sm font-black text-white shadow-md transition-all hover:brightness-105 active:scale-95" style={{ background: "linear-gradient(135deg, #FF5C1A 0%, #FF8C42 100%)", boxShadow: "0 6px 20px rgba(255,92,26,0.3)" }}>
-                        See All Items <ArrowRight size={14} />
-                    </Link>
-                </div>
-            </div>
-        </section>
-    );
-}
+    for (const o of offers) {
+        const badge =
+            o.discountType === "PERCENTAGE" ? `${o.discountValue}% OFF`
+                : o.discountType === "FIXED" ? `₹${o.discountValue} OFF`
+                    : "FREE DELIVERY";
+        slides.push({
+            id: `offer-${o._id}`,
+            image: null,
+            eyebrow: "Limited Offer",
+            title: o.name,
+            subtitle: o.description || undefined,
+            badge,
+            countdownEndAt: null,
+            ctaLabel: "Shop Now",
+            ctaHref: "/menu",
+        });
+    }
 
-const WORD_LIMIT = 12;
+    // Top up with real, available, currently-featured products — never a
+    // duplicate of one already used above, never padded past what the
+    // catalog actually supports.
+    const usedProductIds = new Set<string>();
+    for (const p of featuredProducts) {
+        if (slides.length >= TARGET_SLIDE_COUNT) break;
+        if (usedProductIds.has(p._id)) continue;
+        usedProductIds.add(p._id);
+        slides.push({
+            id: `product-${p._id}`,
+            image: p.image,
+            eyebrow: "On the Menu",
+            title: p.name,
+            subtitle: p.shortDescription,
+            badge: null,
+            price: p.price,
+            countdownEndAt: null,
+            ctaLabel: "Order Now",
+            ctaHref: `/menu/${p.slug}`,
+        });
+    }
 
-function truncateWords(text: string): { preview: string; isTruncated: boolean } {
-    const words = text.trim().split(/\s+/);
-    if (words.length <= WORD_LIMIT) return { preview: text, isTruncated: false };
-    return { preview: words.slice(0, WORD_LIMIT).join(" ") + "…", isTruncated: true };
-}
+    if (slides.length === 0) {
+        slides.push({
+            id: "free-delivery",
+            image: null,
+            eyebrow: "Always a Good Deal",
+            title: `Free delivery above ₹${FREE_DELIVERY_AT}`,
+            subtitle: "On every order, every day — no code needed.",
+            badge: null,
+            countdownEndAt: null,
+            ctaLabel: "Start Ordering",
+            ctaHref: "/menu",
+        });
+    }
 
-const AVATAR_GRADS = [
-    ["#FF5C1A", "#FF8C42"], ["#fbbf24", "#f97316"], ["#34d399", "#059669"],
-    ["#fb923c", "#fcd34d"], ["#f472b6", "#ec4899"], ["#60a5fa", "#3b82f6"],
-];
-
-function initials(name: string) {
-    return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
-}
-
-function TestimonialsStrip({ reviews }: { reviews: HomeReview[] }) {
-    const displayReviews: HomeReview[] = reviews.length > 0 ? reviews : [
-        { _id: "f1", userName: "Priya S.", rating: 5, comment: "Best cold coffee I've had in ages. Ordering online was incredibly smooth!", createdAt: new Date().toISOString() },
-        { _id: "f2", userName: "Rahul M.", rating: 5, comment: "Smash burger is absolutely fire. Delivery was hot and arrived in under 30 minutes.", createdAt: new Date().toISOString() },
-        { _id: "f3", userName: "Ananya K.", rating: 5, comment: "Love the combo deals and ice creams. The site is so smooth — premium feel!", createdAt: new Date().toISOString() },
-    ];
-
-    return (
-        <section className="border-t border-amber-100 bg-white py-16 md:py-20">
-            <div className="mx-auto max-w-7xl px-4 md:px-8">
-                <div className="mb-10 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-                    <div>
-                        <p className="mb-1 text-[11px] font-black uppercase tracking-[0.22em] text-orange-500">Customer Love</p>
-                        <h2 className="text-2xl font-black text-stone-900 md:text-3xl" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                            Don&apos;t just take our word for it
-                        </h2>
-                        <p className="mt-1.5 text-sm text-stone-500">Real words from real customers — unedited and genuine.</p>
-                    </div>
-                    <Link href="/reviews" className="group hidden items-center gap-2 text-sm font-bold text-stone-500 transition-colors hover:text-orange-600 md:inline-flex">
-                        All Reviews <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
-                    </Link>
-                </div>
-                <div className="grid gap-4 md:grid-cols-3">
-                    {displayReviews.map(({ _id, userName, rating, comment }, i) => {
-                        const { preview, isTruncated } = truncateWords(comment);
-                        const [from, to] = AVATAR_GRADS[i % AVATAR_GRADS.length];
-                        return (
-                            <div key={_id} className="flex flex-col rounded-3xl border border-stone-100 bg-[#FFFBF5] p-5 shadow-sm transition-all hover:border-orange-200 hover:shadow-lg hover:shadow-orange-100/50">
-                                <div className="mb-3 flex gap-0.5">
-                                    {Array.from({ length: rating }).map((_, si) => (
-                                        <Star key={si} size={13} className="fill-amber-400 text-amber-400" />
-                                    ))}
-                                </div>
-                                <p className="flex-1 text-sm leading-7 text-stone-600">&ldquo;{preview}&rdquo;</p>
-                                {isTruncated && (
-                                    <Link href="/reviews" className="mt-1.5 flex w-fit items-center gap-0.5 text-[12px] font-bold text-orange-500 transition-colors hover:text-orange-600">
-                                        Read more <ChevronRight size={12} strokeWidth={2.5} />
-                                    </Link>
-                                )}
-                                <div className="mt-4 flex items-center gap-2.5 border-t border-stone-100 pt-4">
-                                    <div className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-black text-white shadow-sm" style={{ backgroundImage: `linear-gradient(135deg, ${from}, ${to})` }}>
-                                        {initials(userName)}
-                                    </div>
-                                    <div>
-                                        <p className="text-sm font-black text-stone-900">{userName}</p>
-                                        <p className="text-[11px] text-stone-400">Verified customer</p>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-                <div className="mt-6 flex justify-center md:hidden">
-                    <Link href="/reviews" className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-5 py-2.5 text-sm font-bold text-stone-600 shadow-sm transition-all hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600">
-                        All Reviews <ArrowRight size={13} />
-                    </Link>
-                </div>
-            </div>
-        </section>
-    );
-}
-
-function FinalCTA() {
-    return (
-        <section className="bg-[#FFFBF5] pb-20 pt-4">
-            <div className="mx-auto max-w-7xl px-4 md:px-8">
-                <div className="relative overflow-hidden rounded-3xl p-8 md:p-12" style={{ background: "linear-gradient(135deg, #FF5C1A 0%, #FF8C42 55%, #FFB347 100%)" }}>
-                    <div className="pointer-events-none absolute inset-0 opacity-[0.06]" style={{ backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)", backgroundSize: "22px 22px" }} />
-                    <div className="pointer-events-none absolute -right-12 -top-12 h-48 w-48 rounded-full border border-white/15" aria-hidden="true" />
-                    <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full border border-white/10" aria-hidden="true" />
-                    <div className="pointer-events-none absolute -left-10 bottom-0 h-40 w-40 rounded-full bg-black/10 blur-2xl" aria-hidden="true" />
-                    <div className="relative flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-                        <div className="max-w-lg">
-                            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/15 px-3 py-1.5">
-                                <span className="text-base">🍽️</span>
-                                <span className="text-[11px] font-black uppercase tracking-widest text-white">Freshly Prepared</span>
-                            </div>
-                            <h2 className="text-2xl font-black text-white md:text-3xl" style={{ fontFamily: "'Playfair Display', Georgia, serif" }}>
-                                Ready to order something <span className="text-white/85">amazing?</span>
-                            </h2>
-                            <p className="mt-2 text-sm leading-relaxed text-white/80">
-                                Fresh food, fast delivery, smooth online ordering — the FoodKnock experience starts the moment you tap.
-                            </p>
-                        </div>
-                        <div className="flex shrink-0 flex-col gap-3">
-                            <Link href="/menu" className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-8 py-3.5 text-sm font-black text-orange-600 shadow-lg transition-all hover:bg-orange-50 active:scale-95">
-                                Start Your Order <ArrowRight size={14} />
-                            </Link>
-                            <Link href="/contact" className="inline-flex items-center justify-center gap-2 rounded-full border-2 border-white/30 bg-white/10 px-8 py-3.5 text-sm font-bold text-white backdrop-blur-sm transition-all hover:bg-white/20">
-                                Get in Touch
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    );
+    return slides;
 }
 
 export default async function HomePage() {
-    // NEW FEATURE: bestSellerProducts now destructured from getHomeData()
-    const { featuredProducts, bestSellerProducts, recentReviews, stats } = await getHomeData();
+    const {
+        featuredProducts, popularProducts, valueProducts, comboProducts,
+        recentReviews, stats, categories, isShopOpen, closedReasonLabel,
+        campaigns, offers,
+    } = await getHomeData();
+
+    const heroSlides = buildPromoSlides(campaigns, offers, featuredProducts);
 
     return (
         <>
-            <Navbar />
-            <main className="bg-[#FFFBF5]">
-                <HeroSection stats={stats} />
-                <FeaturedProducts products={featuredProducts} />
-                {/* NEW FEATURE: BestSellers section placed between FeaturedProducts and CategoriesStrip */}
-                <BestSellers products={bestSellerProducts} />
-                <CategoriesStrip />
+            <main className="bg-fk-bg">
+                {/* SEO fix: the homepage previously had no <h1> anywhere —
+                    HeroCarousel's own heading is an <h2> (correct, since
+                    it's a rotating promotional slide, not a stable page
+                    title) and nothing else on this page used an <h1> at
+                    all. Every page should have exactly one. Visually
+                    hidden (sr-only) rather than a visible duplicate
+                    heading, since the hero/search area already covers
+                    this content visually and a second visible heading
+                    directly above it would be redundant, not an
+                    improvement. Text matches the verified business facts
+                    only (vegetarian cloud kitchen, Danta/Sikar/Rajasthan,
+                    online ordering) — no invented claims. */}
+                <h1 className="sr-only">
+                    FoodKnock — Vegetarian Online Food Delivery in Danta, Sikar, Rajasthan
+                </h1>
+                <HomeSearchEntry />
+                {!isShopOpen && <ShopClosedBanner closedReasonLabel={closedReasonLabel} />}
+
+                {/* Pre-Phase 17 — Home/Search polish: compact promo scroller
+                    sits directly below search, the Refer/Spin action row
+                    directly below that — the explicit requested order.
+                    Category/product discovery follows. */}
+                <HeroCarousel slides={heroSlides} />
+
+                {/* Spin & Win CTA integration — one compact, centered action
+                    row holding both the existing Refer-a-Friend CTA and the
+                    new Spin & Win CTA, sharing the SAME px-4/mx-auto/max-w-7xl
+                    container language every other Home section already uses
+                    (HeroCarousel, FreeDeliveryStrip, etc.) — no new layout
+                    system. SpinWinCTA only navigates to /loyalty?tab=spin;
+                    it doesn't load the Spin wheel/reward config itself. */}
+                <div className="px-4 pt-3 md:px-8">
+                    <div className="mx-auto flex max-w-7xl items-stretch justify-center gap-2 md:gap-2.5">
+                        <ReferralPill />
+                        <SpinWinCTA />
+                    </div>
+                </div>
+
+                <FreeDeliveryStrip />
+                <CategoryRail categories={categories} />
+
+                <ProductRail title="Featured Products" viewAllHref="/menu" products={featuredProducts.map(toRailProduct)} />
+                <ProductRail title="Popular Right Now" viewAllHref="/menu" products={popularProducts.map(toRailProduct)} />
+                <ProductRail title="Under ₹99" viewAllHref="/menu" products={valueProducts.map(toRailProduct)} />
+                <ProductRail title="Combo Deals" viewAllHref="/menu?category=Combos" products={comboProducts.map(toRailProduct)} />
+
+                <LoyaltyPromoStrip />
                 <FeaturesSection />
-                <OfferBanner />
+                <OfferBanner stats={stats} />
                 <TestimonialsStrip reviews={recentReviews} />
-                <FinalCTA />
+                <FinalCta />
             </main>
             <Footer />
         </>

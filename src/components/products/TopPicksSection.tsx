@@ -14,11 +14,10 @@
 //   • TopPickCard: saving computed inline (cheap arithmetic, no memo)
 
 import { useRef, useMemo, useCallback, memo } from "react";
-import { useCartStore } from "@/store/cartStore";
-import { toast } from "react-hot-toast";
 import { ChevronLeft, ChevronRight, Flame, ShoppingCart, Star } from "lucide-react";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -63,7 +62,7 @@ const TopPickCard = memo(function TopPickCard({
     product: Product;
     index: number;
 }) {
-    const addItem = useCartStore(s => s.addItem);
+    const { handleAdd: addToCart } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
 
     // PERF: cheap arithmetic — no useMemo needed
@@ -76,21 +75,14 @@ const TopPickCard = memo(function TopPickCard({
 
     const handleAdd = useCallback((e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
-        if (unavailable) return;
-        addItem({
-            _id: product._id, name: product.name, price: product.price,
-            image: product.image, quantity: 1, stock: product.stock, category: product.category,
-        });
-        toast.success(`${product.name} added!`, {
-            style: { background: "#fff7ed", color: "#7c2d12", border: "1px solid #fed7aa", borderRadius: "14px" },
-        });
-    }, [addItem, product, unavailable]);
+        addToCart(product);
+    }, [addToCart, product]);
 
     return (
         <Link
             href={`/menu/${product.slug}`}
             style={{ animationDelay: `${index * 60}ms`, minWidth: 220, maxWidth: 240 }}
-            className={`fk-tp-card group relative flex shrink-0 flex-col overflow-hidden rounded-3xl bg-white transition-all duration-300 snap-start ${unavailable ? "opacity-60" : "hover:-translate-y-1 hover:shadow-2xl hover:shadow-orange-200/60"
+            className={`fk-tp-card group relative flex shrink-0 flex-col overflow-hidden rounded-3xl bg-fk-surface-elevated transition-all duration-300 snap-start ${unavailable ? "opacity-60" : "hover:-translate-y-1 hover:shadow-2xl hover:shadow-orange-200/60"
                 }`}>
 
             {/* Gradient accent bar */}
@@ -125,8 +117,8 @@ const TopPickCard = memo(function TopPickCard({
                 )}
 
                 {unavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/30 backdrop-blur-[2px]">
-                        <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-stone-500">
+                    <div className="absolute inset-0 flex items-center justify-center bg-fk-surface-elevated/30 backdrop-blur-[2px]">
+                        <span className="rounded-full bg-fk-surface-elevated/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-fk-text-secondary">
                             Unavailable
                         </span>
                     </div>
@@ -134,10 +126,10 @@ const TopPickCard = memo(function TopPickCard({
 
                 {/* Price pill */}
                 <div className="absolute bottom-2.5 right-2.5">
-                    <div className="flex items-baseline gap-1 rounded-xl bg-white/95 px-2.5 py-1 shadow backdrop-blur-sm">
+                    <div className="flex items-baseline gap-1 rounded-xl bg-fk-surface-elevated/95 px-2.5 py-1 shadow backdrop-blur-sm">
                         <span className="text-[15px] font-black text-orange-600">₹{product.price}</span>
                         {product.compareAtPrice && product.compareAtPrice > product.price && (
-                            <span className="text-[10px] text-stone-400 line-through">₹{product.compareAtPrice}</span>
+                            <span className="text-[10px] text-fk-text-tertiary line-through">₹{product.compareAtPrice}</span>
                         )}
                     </div>
                 </div>
@@ -146,18 +138,18 @@ const TopPickCard = memo(function TopPickCard({
             {/* Content */}
             <div className="flex flex-1 flex-col p-4">
                 <h3
-                    className="line-clamp-1 text-[14.5px] font-black leading-snug text-stone-900"
+                    className="line-clamp-1 text-[14.5px] font-black leading-snug text-fk-text"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                     {product.name}
                 </h3>
-                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-stone-400">
+                <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fk-text-tertiary">
                     {product.shortDescription || product.description}
                 </p>
                 <button
                     onClick={handleAdd}
                     disabled={unavailable}
                     className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12px] font-black transition-all duration-200 ${unavailable
-                            ? "cursor-not-allowed bg-stone-100 text-stone-400"
+                            ? "cursor-not-allowed bg-stone-100 text-fk-text-tertiary"
                             : "bg-gradient-to-r from-orange-500 to-red-500 text-white shadow-md shadow-orange-200 hover:brightness-110 active:scale-[0.97]"
                         }`}>
                     <ShoppingCart size={12} strokeWidth={2.5} />
@@ -210,19 +202,19 @@ const TopPicksSection = memo(function TopPicksSection(props: TopPicksSectionProp
                             </span>
                         </div>
                         <h2
-                            className="text-2xl font-black text-stone-900 md:text-3xl"
+                            className="text-2xl font-black text-fk-text md:text-3xl"
                             style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                             🔥 Top Picks
                         </h2>
-                        <p className="mt-0.5 text-[12px] text-stone-400">Our most loved items, handpicked for you</p>
+                        <p className="mt-0.5 text-[12px] text-fk-text-tertiary">Our most loved items, handpicked for you</p>
                     </div>
                     <div className="hidden items-center gap-2 md:flex">
                         <button onClick={scrollLeft}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200 bg-white text-stone-400 shadow-sm transition-all hover:border-orange-400 hover:bg-orange-50 hover:text-orange-500">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200 bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-orange-400 hover:bg-orange-50 hover:text-orange-500">
                             <ChevronLeft size={15} strokeWidth={2.5} />
                         </button>
                         <button onClick={scrollRight}
-                            className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200 bg-white text-stone-400 shadow-sm transition-all hover:border-orange-400 hover:bg-orange-50 hover:text-orange-500">
+                            className="flex h-9 w-9 items-center justify-center rounded-full border border-orange-200 bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-orange-400 hover:bg-orange-50 hover:text-orange-500">
                             <ChevronRight size={15} strokeWidth={2.5} />
                         </button>
                     </div>

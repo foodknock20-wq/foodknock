@@ -28,20 +28,56 @@ export type OrderEventData = {
      * about push payload shape or behavior.
      */
     customerName?: string;
+    /** Phase 14 — cancellation reason, order.cancelled only. */
+    reason?: string;
 };
 
 const TRACK_ACTIONS: NotificationAction[] = [
     { action: "track", title: "Track Order" },
 ];
 
+// PHASE 8B — deterministic per-event display tag.
+//
+// BUG: the production "Order Delivered arrives twice" report traced back
+// to this: none of the order-lifecycle templates set `tag`, so
+// webPushProvider.ts's toWebPushPayload() never forwarded one, and
+// public/sw.js's push handler fell back to a RANDOM per-push-event tag
+// (`"foodknock-" + Date.now() + ...`). Every emit()/send() path was
+// already verified correct — changeOrderStatus() (Phase 5) guarantees
+// order.delivered is EMITTED at most once per genuine transition, and
+// webPushProvider.send() calls provider.send() exactly once per
+// (channel, subscription) pair, no double-transport. The remaining,
+// well-documented residual risk is TRANSPORT-level redelivery: Web
+// Push/FCM can occasionally redeliver the same message more than once
+// (rare, non-deterministic, outside this app's control) — and with a
+// RANDOM tag, a redelivered copy of the identical event showed up as a
+// SECOND, separate tray notification instead of collapsing into the
+// first.
+//
+// FIX: each order-lifecycle event now carries a stable tag derived from
+// its own identity — `order-{orderId}-{status}`. public/sw.js already
+// prefers `data.tag` over its random fallback (unchanged code, see its
+// push handler) and passes `renotify: true`, so if the exact same event
+// is ever redelivered, the second showNotification() call REPLACES the
+// existing tray entry (same orderId + same status = same tag) instead of
+// stacking a duplicate. Different statuses for the same order still get
+// different tags (order-X-preparing vs order-X-delivered), so the
+// legitimate "preparing → out for delivery → delivered" sequence is
+// completely unaffected — each still gets its own tray entry, exactly as
+// before.
+function orderStatusTag(orderId: string, status: string): string {
+    return `order-${orderId}-${status}`;
+}
+
 function buildOrderPlacedPayload(event: NotificationEvent<OrderEventData>): NotificationPayload {
     const { orderId } = event.data;
     return {
-        title: "🎉 Order Confirmed!",
-        body: "Your order has been placed successfully. We'll start preparing it shortly.",
+        title: "Your FoodKnock order is confirmed 🎉",
+        body: "We've got it — fresh food is about to be prepared for you.",
         url: `/my-orders/${orderId}`,
         category: "order_update",
         priority: "normal",
+        tag: orderStatusTag(orderId, "placed"),
         actions: [
             { action: "track", title: "Track Order" },
             { action: "dismiss", title: "Later" },
@@ -51,16 +87,29 @@ function buildOrderPlacedPayload(event: NotificationEvent<OrderEventData>): Noti
     };
 }
 
+// PHASE 17.7: both of these used to deep-link to the PUBLIC
+// /track-order/{orderId} page. That was never actually necessary —
+// guest checkout was already removed platform-wide (Phase 9), every
+// order has a real linked User, and every transactional push already
+// requires target.userId (engine.ts's safety rail), so the recipient here
+// is always the order's own authenticated owner. Repointed to
+// /my-orders/{orderId} — the already-ownership-checked, full-detail page
+// (GET /api/orders/my/[orderId]) — matching what buildOrderPlacedPayload/
+// buildOrderDeliveredPayload below already did. This is what let the
+// public /track-order route's response be minimized to non-PII fields
+// (see src/app/api/orders/track/[orderId]/route.ts's header comment)
+// without losing any actual customer-facing functionality.
 function buildOrderPreparingPayload(event: NotificationEvent<OrderEventData>): NotificationPayload {
     const { orderId } = event.data;
     return {
-        title: "👨‍🍳 Your food is being prepared",
-        body: "Our chefs have started preparing your delicious order.",
-        url: `/track-order/${orderId}`,
+        title: "Your order is being prepared 👨‍🍳",
+        body: "Fresh and hot — our kitchen is on it.",
+        url: `/my-orders/${orderId}`,
         category: "order_update",
         priority: "normal",
+        tag: orderStatusTag(orderId, "preparing"),
         actions: TRACK_ACTIONS,
-        ctaButtons: [{ id: "track", label: "Track Order", url: `/track-order/${orderId}` }],
+        ctaButtons: [{ id: "track", label: "Track Order", url: `/my-orders/${orderId}` }],
         data: { orderId, kind: "order.preparing" },
     };
 }
@@ -68,15 +117,16 @@ function buildOrderPreparingPayload(event: NotificationEvent<OrderEventData>): N
 function buildOrderOutForDeliveryPayload(event: NotificationEvent<OrderEventData>): NotificationPayload {
     const { orderId } = event.data;
     return {
-        title: "🛵 Out for Delivery",
-        body: "Your rider is on the way. Get ready!",
-        url: `/track-order/${orderId}`,
+        title: "Your order is on the way 🛵",
+        body: "Your rider has picked it up — get ready!",
+        url: `/my-orders/${orderId}`,
         category: "order_update",
         priority: "high",
+        tag: orderStatusTag(orderId, "out_for_delivery"),
         actions: [
             { action: "track", title: "Track Live" },
         ],
-        ctaButtons: [{ id: "track", label: "Track Order", url: `/track-order/${orderId}` }],
+        ctaButtons: [{ id: "track", label: "Track Order", url: `/my-orders/${orderId}` }],
         data: { orderId, kind: "order.out_for_delivery" },
     };
 }
@@ -84,11 +134,12 @@ function buildOrderOutForDeliveryPayload(event: NotificationEvent<OrderEventData
 function buildOrderDeliveredPayload(event: NotificationEvent<OrderEventData>): NotificationPayload {
     const { orderId, customerName } = event.data;
     return {
-        title: "✅ Delivered!",
-        body: "Enjoy your meal. Thank you for choosing FoodKnock.",
+        title: "Order delivered — enjoy your meal 🍽️",
+        body: "Your FoodKnock order has arrived. Thanks for ordering with us!",
         url: `/`,
         category: "order_update",
         priority: "high",
+        tag: orderStatusTag(orderId, "delivered"),
         actions: [
             { action: "rate", title: "Rate Order" },
             { action: "reorder", title: "Order Again" },
@@ -101,6 +152,25 @@ function buildOrderDeliveredPayload(event: NotificationEvent<OrderEventData>): N
         // Delivery Provider can call the existing sendOrderDeliveredEmail()
         // without the engine or push provider needing to know it exists.
         data: { orderId, customerName, kind: "order.delivered" },
+    };
+}
+
+// Phase 14 — cancellation. Mirrors the other order-lifecycle builders above
+// exactly: same orderStatusTag() scheme (so a redelivered push collapses
+// into the existing tray entry instead of stacking a duplicate — see that
+// function's header comment), same TRACK_ACTIONS-less shape since there's
+// nothing left to track.
+function buildOrderCancelledPayload(event: NotificationEvent<OrderEventData>): NotificationPayload {
+    const { orderId } = event.data;
+    return {
+        title: "Order cancelled",
+        body: "Your FoodKnock order has been cancelled. If you paid online, any refund will be processed separately.",
+        url: `/my-orders/${orderId}`,
+        category: "order_update",
+        priority: "high",
+        tag: orderStatusTag(orderId, "cancelled"),
+        ctaButtons: [{ id: "view", label: "View Order", url: `/my-orders/${orderId}` }],
+        data: { orderId, kind: "order.cancelled" },
     };
 }
 
@@ -226,6 +296,7 @@ export const transactionalTemplates: Partial<
     "order.preparing": buildOrderPreparingPayload,
     "order.out_for_delivery": buildOrderOutForDeliveryPayload,
     "order.delivered": buildOrderDeliveredPayload,
+    "order.cancelled": buildOrderCancelledPayload,
     "auth.otp_requested": buildOtpRequestedPayload,
     "user.welcome": buildWelcomePayload,
     "loyalty.points_credited": buildLoyaltyPointsCreditedPayload,

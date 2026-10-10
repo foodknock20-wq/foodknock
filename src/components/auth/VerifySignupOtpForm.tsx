@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "react-hot-toast";
 import { ArrowLeft, Loader2, XCircle, ShieldCheck, RefreshCw, Mail } from "lucide-react";
 import OtpInput from "./OtpInput";
+import { markAuthenticatedOnThisDevice } from "@/lib/authDeviceMemory";
 
 const RESEND_COOLDOWN_SECONDS = 60;
 
@@ -70,6 +71,11 @@ export default function VerifySignupOtpForm({ email, onBackToStart }: VerifySign
                         }));
                     }
                 } catch { /* storage might be unavailable */ }
+
+                // AUTH 2.0 — UX-only device marker, set ONLY here (the
+                // server has already verified the OTP and created/activated
+                // the account) — see src/lib/authDeviceMemory.ts.
+                markAuthenticatedOnThisDevice();
 
                 toast.success("🎉 Welcome to FoodKnock! Your account is ready.", {
                     duration: 2600,

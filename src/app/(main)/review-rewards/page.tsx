@@ -1,20 +1,40 @@
 "use client";
 export const dynamic = "force-dynamic";
 
-
 // src/app/(main)/review-reward/page.tsx
 // FoodKnock — Instagram Review Reward
-// Warm ember palette · Playfair Display · mobile-first
 // Post a reel → get a free burger 🍔
+//
+// Final customer-pages polish — full rewrite of the PRESENTATION layer
+// only. Every piece of business logic is byte-for-byte unchanged from the
+// previous version: the Instagram-URL regex, the STEPS copy, handleSubmit,
+// the status/approved-reviews fetch effect, and all real data shapes
+// (Submission/ApprovedReview). What changed:
+//   1. Restyled from a one-off pink/rose/stone palette + Playfair Display
+//      to FoodKnock's locked `--fk-*` light design system (orange/gold/
+//      charcoal), matching the rest of the redesigned customer app.
+//   2. Trimmed the hero from 3 stacked decorative blur layers + a large
+//      serif headline to one subtle gradient band — "premium does not
+//      mean tall" (spec §25).
+//   3. Restructured the body into a genuine two-column layout at lg+:
+//      LEFT = content + action (how it works, the submission form),
+//      RIGHT = status + reward information (sticky). Below both: the
+//      real-data social-proof wall and FAQ, full width. On mobile this
+//      collapses to one deliberately ordered column (hero → how it
+//      works → status/reward → action → supporting info), not a blind
+//      shrink of the desktop grid.
+//   4. Added a RewardInfoCard for the right column's "nothing submitted
+//      yet" state — this reuses the SAME real copy already on the page
+//      (the hero chips / StatusCard's own approved-state message
+//      template), not a new invented claim.
 
 import { useEffect, useRef, useState } from "react";
-import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
 import Link   from "next/link";
 import {
     Instagram, Gift, CheckCircle2, Clock, XCircle,
     ExternalLink, ArrowRight, Loader2, AlertTriangle,
-    Star, Flame, Play,
+    Play, Sparkles,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -46,33 +66,32 @@ const STEPS = [
     { emoji: "🍔", title: "Free Item!",   desc: "Approved? Your next order (₹150+) gets a FREE Burger automatically added."     },
 ];
 
-// ─── Status card ─────────────────────────────────────────────────────────────
+// ─── Status card (right column — real submission status) ────────────────────
 function StatusCard({ sub }: { sub: Submission }) {
     const isPending  = sub.status === "pending";
     const isApproved = sub.status === "approved";
-    const isRejected = sub.status === "rejected";
     const isUsed     = sub.rewardUsed;
 
     const cfg = isApproved && !isUsed
-        ? { bg: "from-emerald-50 to-green-50", border: "border-emerald-200", icon: <CheckCircle2 size={22} className="text-emerald-500" />, title: "Reward Ready! 🎉", sub: `Your FREE ${sub.rewardItem === "pizza" ? "Pizza 🍕" : "Burger 🍔"} will be added automatically on your next order (₹150+).` }
+        ? { bg: "bg-fk-success/10", border: "border-fk-success/30", icon: <CheckCircle2 size={22} className="text-fk-success" />, title: "Reward Ready! 🎉", sub: `Your FREE ${sub.rewardItem === "pizza" ? "Pizza 🍕" : "Burger 🍔"} will be added automatically on your next order (₹150+).` }
         : isApproved && isUsed
-        ? { bg: "from-stone-50 to-slate-50",   border: "border-stone-200",   icon: <CheckCircle2 size={22} className="text-stone-400"   />, title: "Reward Used ✓",   sub: "You've already redeemed your free item. Thanks for the love!" }
+        ? { bg: "bg-fk-surface-selected", border: "border-fk-border",   icon: <CheckCircle2 size={22} className="text-fk-text-tertiary" />, title: "Reward Used ✓",   sub: "You've already redeemed your free item. Thanks for the love!" }
         : isPending
-        ? { bg: "from-amber-50 to-orange-50",  border: "border-amber-200",   icon: <Clock size={22} className="text-amber-500"       />, title: "Under Review 🔍",  sub: "We've received your submission! Verification usually takes 24 hours."   }
-        : { bg: "from-rose-50  to-red-50",     border: "border-rose-200",    icon: <XCircle size={22} className="text-rose-500"        />, title: "Not Approved",    sub: "This submission was rejected. Make sure your reel is publicly visible and clearly features FoodKnock." };
+        ? { bg: "bg-fk-gold-soft",        border: "border-fk-gold/30",  icon: <Clock size={22} className="text-fk-gold" />, title: "Under Review 🔍",  sub: "We've received your submission! Verification usually takes 24 hours."   }
+        : { bg: "bg-fk-danger/10",        border: "border-fk-danger/30", icon: <XCircle size={22} className="text-fk-danger" />, title: "Not Approved",    sub: "This submission was rejected. Make sure your reel is publicly visible and clearly features FoodKnock." };
 
     return (
-        <div className={`rounded-3xl border ${cfg.border} bg-gradient-to-br ${cfg.bg} p-5`}>
+        <div className={`rounded-fk-lg border ${cfg.border} ${cfg.bg} p-5`}>
             <div className="flex items-start gap-4">
-                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${cfg.border} bg-white`}>
+                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-fk-md border ${cfg.border} bg-fk-surface-elevated`}>
                     {cfg.icon}
                 </div>
                 <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-black text-stone-900">{cfg.title}</p>
-                    <p className="mt-1 text-[12.5px] leading-relaxed text-stone-600">{cfg.sub}</p>
+                    <p className="text-[15px] font-black text-fk-text">{cfg.title}</p>
+                    <p className="mt-1 text-[12.5px] leading-relaxed text-fk-text-secondary">{cfg.sub}</p>
                     {sub.instagramLink && (
                         <a href={sub.instagramLink} target="_blank" rel="noopener noreferrer"
-                           className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-pink-200 bg-white px-3 py-1 text-[11px] font-bold text-pink-600 transition-colors hover:bg-pink-50">
+                           className="mt-2.5 inline-flex items-center gap-1.5 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-3 py-1 text-[11px] font-bold text-[var(--fk-accent)] transition-colors hover:bg-fk-surface-selected">
                             <Instagram size={11} /> View your reel
                             <ExternalLink size={10} />
                         </a>
@@ -83,51 +102,81 @@ function StatusCard({ sub }: { sub: Submission }) {
     );
 }
 
-// ─── Approved reviews wall ───────────────────────────────────────────────────
+// ─── Reward info card (right column — before any submission exists) ─────────
+// Purely a restatement of real copy that already exists elsewhere on this
+// page (hero chips, StatusCard's own approved-state template) — no new
+// claim is introduced here.
+function RewardInfoCard() {
+    return (
+        <div className="overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm">
+            <div className="border-b border-fk-border bg-fk-surface-selected px-5 py-4">
+                <p className="text-[13px] font-black text-fk-text">Your Reward</p>
+                <p className="text-[11px] text-fk-text-secondary">What you get once approved</p>
+            </div>
+            <div className="space-y-3 p-5">
+                <div className="flex items-start gap-3 rounded-fk-md border border-fk-border bg-fk-gold-soft px-4 py-3">
+                    <Gift size={18} className="mt-0.5 shrink-0 text-[var(--fk-accent)]" />
+                    <div>
+                        <p className="text-[13px] font-black text-fk-text">Free Burger 🍔</p>
+                        <p className="mt-0.5 text-[11.5px] leading-relaxed text-fk-text-secondary">
+                            Added automatically to your next order of ₹150+ once your reel is approved.
+                        </p>
+                    </div>
+                </div>
+                {[
+                    { icon: <CheckCircle2 size={14} className="text-fk-success" />, text: "Verified within 24 hrs" },
+                    { icon: <Sparkles size={14} className="text-[var(--fk-accent)]" />, text: "One reward per account" },
+                ].map((r) => (
+                    <div key={r.text} className="flex items-center gap-2.5 px-1">
+                        {r.icon}
+                        <p className="text-[12.5px] font-semibold text-fk-text-secondary">{r.text}</p>
+                    </div>
+                ))}
+                <p className="pt-1 text-[11px] leading-relaxed text-fk-text-tertiary">
+                    Submit your reel below — once it&apos;s in review, your real status will appear right here.
+                </p>
+            </div>
+        </div>
+    );
+}
+
+// ─── Approved reviews wall (real data only) ──────────────────────────────────
 function ReviewWall({ reviews }: { reviews: ApprovedReview[] }) {
     if (!reviews.length) return null;
     return (
-        <section className="mt-12">
-            {/* Section header */}
-            <div className="mb-5 flex items-center justify-between">
+        <section className="mt-8">
+            <div className="mb-4 flex items-center justify-between">
                 <div>
-                    <p className="text-[10px] font-black uppercase tracking-[0.24em] text-orange-500">Real Reviews</p>
-                    <h2 style={{ fontFamily:"'Playfair Display',Georgia,serif" }}
-                        className="text-xl font-black text-stone-900">
-                        FoodKnock Fans on Instagram
-                    </h2>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-[var(--fk-accent)]">Real Reviews</p>
+                    <h2 className="text-lg font-black text-fk-text">FoodKnock Fans on Instagram</h2>
                 </div>
-                <div className="flex items-center gap-1.5 rounded-2xl border border-pink-100 bg-pink-50 px-3 py-2">
-                    <Instagram size={13} className="text-pink-500" />
-                    <span className="text-[11px] font-black text-pink-600">{reviews.length} reels</span>
+                <div className="flex items-center gap-1.5 rounded-fk-pill border border-fk-border bg-fk-surface-selected px-3 py-1.5">
+                    <Instagram size={13} className="text-[var(--fk-accent)]" />
+                    <span className="text-[11px] font-black text-fk-text">{reviews.length} reels</span>
                 </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                 {reviews.map((r) => (
                     <a key={r.id} href={r.instagramLink} target="_blank" rel="noopener noreferrer"
-                       className="group flex flex-col overflow-hidden rounded-2xl border border-stone-100 bg-white shadow-sm transition-all duration-200 hover:border-pink-200 hover:shadow-md hover:shadow-pink-50">
-                        {/* Gradient thumb */}
-                        <div className="relative flex h-28 items-center justify-center overflow-hidden"
-                             style={{ background:"linear-gradient(135deg,#f43f5e15,#ec489920,#a855f715)" }}>
-                            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-pink-200/60 bg-white/80 shadow-lg backdrop-blur-sm transition-transform duration-300 group-hover:scale-110">
-                                <Play size={22} className="ml-1 text-pink-500" fill="currentColor" />
+                       className="group flex flex-col overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm transition-all duration-150 hover:border-[var(--fk-accent)]/30 hover:shadow-md">
+                        <div className="relative flex h-24 items-center justify-center overflow-hidden bg-fk-gold-soft">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-fk-border bg-fk-surface-elevated/90 shadow-md transition-transform duration-150 group-hover:scale-110">
+                                <Play size={18} className="ml-0.5 text-[var(--fk-accent)]" fill="currentColor" />
                             </div>
-                            <div className="pointer-events-none absolute inset-0"
-                                 style={{ background:"linear-gradient(to bottom,transparent 60%,rgba(0,0,0,0.08))" }} />
-                            <span className="absolute right-3 top-3 rounded-full border border-pink-200 bg-white px-2 py-0.5 text-[9px] font-black text-pink-600">
+                            <span className="absolute right-2.5 top-2.5 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-2 py-0.5 text-[9px] font-black text-[var(--fk-accent)]">
                                 REEL
                             </span>
                         </div>
 
                         <div className="flex flex-1 items-center justify-between gap-2 px-4 py-3">
                             <div className="min-w-0">
-                                <p className="truncate text-[13px] font-black text-stone-800">{r.userName}</p>
-                                <p className="mt-0.5 text-[10px] text-stone-400">
+                                <p className="truncate text-[13px] font-black text-fk-text">{r.userName}</p>
+                                <p className="mt-0.5 text-[10px] text-fk-text-tertiary">
                                     Got Free {r.rewardItem === "pizza" ? "Pizza 🍕" : "Burger 🍔"}
                                 </p>
                             </div>
-                            <div className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-pink-500">
+                            <div className="flex shrink-0 items-center gap-1 text-[11px] font-bold text-[var(--fk-accent)]">
                                 Watch <ExternalLink size={10} />
                             </div>
                         </div>
@@ -149,7 +198,7 @@ export default function ReviewRewardPage() {
     const [reviews,     setReviews]     = useState<ApprovedReview[]>([]);
     const fetched = useRef(false);
 
-    // ── Load user status + approved reviews ──────────────────────────────
+    // ── Load user status + approved reviews — UNCHANGED ──────────────────
     useEffect(() => {
         if (fetched.current) return;
         fetched.current = true;
@@ -163,6 +212,7 @@ export default function ReviewRewardPage() {
         }).finally(() => setLoadingStatus(false));
     }, []);
 
+    // ── Submit handler — UNCHANGED ────────────────────────────────────────
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError("");
@@ -202,62 +252,40 @@ export default function ReviewRewardPage() {
     };
 
     const alreadySubmitted = !!submission;
+    const showForm = !loadingStatus && !alreadySubmitted && !success;
 
     return (
         <>
-            <Navbar />
-            <main className="min-h-screen" style={{ background:"#FFFBF5" }}>
+            <main className="min-h-screen bg-fk-bg">
 
-                {/* ══════════════════════════════════════
-                    HERO
-                ══════════════════════════════════════ */}
-                <section className="relative overflow-hidden">
-                    <div className="absolute inset-0"
-                         style={{ background:"linear-gradient(160deg,#fff0f3 0%,#fff7ed 45%,#fff9f4 100%)" }} />
-                    <div className="pointer-events-none absolute inset-0 opacity-[0.04]"
-                         style={{ backgroundImage:"radial-gradient(circle,#9d174d 1px,transparent 1px)", backgroundSize:"22px 22px" }} />
-                    <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full opacity-20 blur-3xl"
-                         style={{ background:"radial-gradient(circle,#ec4899,transparent 70%)" }} />
-                    <div className="pointer-events-none absolute -left-10 bottom-0 h-48 w-48 rounded-full opacity-10 blur-3xl"
-                         style={{ background:"radial-gradient(circle,#f97316,transparent 70%)" }} />
-
-                    <div className="relative mx-auto max-w-3xl px-4 pb-8 pt-10 text-center md:px-8 md:pb-10 md:pt-14">
-
-                        {/* Eyebrow */}
-                        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-pink-200 bg-white px-4 py-1.5 shadow-sm">
-                            <Instagram size={13} className="text-pink-500" />
-                            <span className="text-[10.5px] font-black uppercase tracking-[0.24em] text-pink-600">
+                {/* ── Compact hero ── */}
+                <section className="relative overflow-hidden border-b border-fk-border bg-fk-surface-elevated">
+                    <div className="pointer-events-none absolute inset-0"
+                         style={{ background: "radial-gradient(ellipse 80% 60% at 50% -10%, var(--fk-gold-soft) 0%, transparent 70%)" }} />
+                    <div className="relative mx-auto max-w-6xl px-4 py-8 text-center md:px-8 md:py-10">
+                        <div className="mb-3 inline-flex items-center gap-2 rounded-fk-pill border border-fk-border bg-fk-surface-selected px-4 py-1.5">
+                            <Instagram size={13} className="text-[var(--fk-accent)]" />
+                            <span className="text-[10.5px] font-black uppercase tracking-[0.22em] text-[var(--fk-accent)]">
                                 Instagram Review Reward
                             </span>
                         </div>
 
-                        {/* Headline */}
-                        <h1 style={{ fontFamily:"'Playfair Display',Georgia,serif" }}
-                            className="text-[2rem] font-black leading-[1.07] tracking-tight text-stone-900 md:text-5xl">
-                            Post a Reel,{" "}
-                            <span style={{
-                                background:"linear-gradient(135deg,#ec4899 0%,#f97316 60%,#dc2626 100%)",
-                                WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent",
-                            }}>
-                                Eat for Free
-                            </span>
-                            <span className="ml-2">🍔</span>
+                        <h1 className="text-2xl font-black leading-tight text-fk-text md:text-3xl">
+                            Post a Reel, Eat for Free <span aria-hidden="true">🍔</span>
                         </h1>
 
-                        <p className="mx-auto mt-3 max-w-md text-[13.5px] leading-relaxed text-stone-500">
-                            Share your honest FoodKnock experience on Instagram and we'll add a{" "}
-                            <span className="font-black text-orange-600">FREE Burger</span> to your next order.
-                            Zero catches. Just real love for real reviews.
+                        <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-fk-text-secondary">
+                            Share your honest FoodKnock experience on Instagram and we&apos;ll add a{" "}
+                            <span className="font-black text-[var(--fk-accent)]">FREE Burger</span> to your next order.
                         </p>
 
-                        {/* Chips */}
                         <div className="mt-4 flex flex-wrap justify-center gap-2">
                             {[
-                                { icon:"🎁", text:"Free Burger on Next Order",     c:"bg-orange-50 border-orange-200 text-orange-700"  },
-                                { icon:"✅", text:"Verified within 24 hrs",        c:"bg-emerald-50 border-emerald-200 text-emerald-700"},
-                                { icon:"💯", text:"One reward per account",        c:"bg-pink-50 border-pink-200 text-pink-700"         },
-                            ].map(b => (
-                                <span key={b.text} className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold ${b.c}`}>
+                                { icon: "🎁", text: "Free Burger on Next Order" },
+                                { icon: "✅", text: "Verified within 24 hrs" },
+                                { icon: "💯", text: "One reward per account" },
+                            ].map((b) => (
+                                <span key={b.text} className="flex items-center gap-1.5 rounded-fk-pill border border-fk-border bg-fk-surface-selected px-3 py-1 text-[11px] font-bold text-fk-text-secondary">
                                     <span>{b.icon}</span>{b.text}
                                 </span>
                             ))}
@@ -265,156 +293,160 @@ export default function ReviewRewardPage() {
                     </div>
                 </section>
 
-                {/* ══════════════════════════════════════
-                    BODY
-                ══════════════════════════════════════ */}
-                <div className="mx-auto max-w-3xl px-4 py-8 md:px-8 md:py-10">
+                {/* ── Body — genuine 2-column at lg+, deliberate mobile order ── */}
+                <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-8">
+                    <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
 
-                    {/* ── How it works ── */}
-                    <div className="mb-8 overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-sm">
-                        <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50/70 to-pink-50/40 px-5 py-4">
-                            <p className="text-[13px] font-black text-stone-900">How it works</p>
-                            <p className="text-[11px] text-stone-500">4 simple steps to your free item</p>
-                        </div>
-                        <div className="grid gap-px bg-stone-100 sm:grid-cols-4">
-                            {STEPS.map((s, i) => (
-                                <div key={i} className="flex flex-col gap-2 bg-white px-4 py-4">
-                                    <span className="text-2xl">{s.emoji}</span>
-                                    <p className="text-[12px] font-black text-stone-900">{s.title}</p>
-                                    <p className="text-[11px] leading-relaxed text-stone-500">{s.desc}</p>
+                        {/* LEFT — content + action */}
+                        <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1">
+                            <div className="overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm">
+                                <div className="border-b border-fk-border bg-fk-surface-selected px-5 py-4">
+                                    <p className="text-[13px] font-black text-fk-text">How it works</p>
+                                    <p className="text-[11px] text-fk-text-secondary">4 simple steps to your free item</p>
                                 </div>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* ── Submission / status area ── */}
-                    {loadingStatus ? (
-                        <div className="flex items-center justify-center py-16">
-                            <Loader2 size={28} className="animate-spin text-orange-400" />
-                        </div>
-                    ) : alreadySubmitted ? (
-                        <div className="space-y-4">
-                            <StatusCard sub={submission!} />
-                            {submission?.status !== "rejected" && (
-                                <div className="rounded-2xl border border-stone-100 bg-stone-50 px-4 py-3">
-                                    <p className="text-[11.5px] text-stone-500">
-                                        Each account can submit once. Questions?{" "}
-                                        <Link href="/contact" className="font-bold text-orange-600 hover:underline">
-                                            Contact us
-                                        </Link>
-                                    </p>
-                                </div>
-                            )}
-                        </div>
-                    ) : success ? (
-                        <div className="overflow-hidden rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-green-50 p-6 text-center shadow-sm">
-                            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-emerald-200 bg-white shadow-sm">
-                                <CheckCircle2 size={32} className="text-emerald-500" />
-                            </div>
-                            <h3 style={{ fontFamily:"'Playfair Display',Georgia,serif" }}
-                                className="text-xl font-black text-stone-900">
-                                Submitted Successfully! 🎉
-                            </h3>
-                            <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-stone-600">
-                                Your review is under verification. Once approved, a{" "}
-                                <span className="font-black text-orange-600">FREE Burger 🍔</span> will be
-                                automatically added to your next order of ₹150+.
-                            </p>
-                            <div className="mt-5 flex flex-wrap justify-center gap-3">
-                                <Link href="/menu"
-                                      className="flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-5 py-2.5 text-[13px] font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 active:scale-95">
-                                    Browse Menu <ArrowRight size={13} />
-                                </Link>
-                            </div>
-                        </div>
-                    ) : (
-                        /* ── Submit form ── */
-                        <div className="overflow-hidden rounded-3xl border border-pink-100 bg-white shadow-sm">
-                            <div className="border-b border-pink-100 bg-gradient-to-r from-pink-50/70 to-orange-50/40 px-5 py-4">
-                                <div className="flex items-center gap-3">
-                                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 shadow-sm shadow-pink-200">
-                                        <Instagram size={18} className="text-white" />
-                                    </div>
-                                    <div>
-                                        <p className="text-[13px] font-black text-stone-900">Submit Your Instagram Reel</p>
-                                        <p className="text-[11px] text-stone-500">Paste the link to your FoodKnock review reel</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-
-                                {/* Requirements */}
-                                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 space-y-1.5">
-                                    <p className="text-[11px] font-black text-amber-800">Before you submit, make sure:</p>
-                                    {[
-                                        "Your reel is publicly visible (not private)",
-                                        "FoodKnock is clearly visible in the video",
-                                        "Link format: instagram.com/reel/... or instagram.com/p/...",
-                                    ].map(t => (
-                                        <div key={t} className="flex items-start gap-2">
-                                            <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-amber-600" />
-                                            <p className="text-[11px] text-amber-700">{t}</p>
+                                <div className="grid gap-px bg-fk-border sm:grid-cols-4">
+                                    {STEPS.map((s, i) => (
+                                        <div key={i} className="flex flex-col gap-2 bg-fk-surface-elevated px-4 py-4">
+                                            <span className="text-2xl">{s.emoji}</span>
+                                            <p className="text-[12px] font-black text-fk-text">{s.title}</p>
+                                            <p className="text-[11px] leading-relaxed text-fk-text-secondary">{s.desc}</p>
                                         </div>
                                     ))}
                                 </div>
+                            </div>
 
-                                {/* Input */}
-                                <div className="flex flex-col gap-1.5">
-                                    <label className="text-[11px] font-black uppercase tracking-[0.18em] text-stone-500">
-                                        Instagram Reel Link <span className="text-pink-500">*</span>
-                                    </label>
-                                    <div className="relative flex items-center">
-                                        <Instagram size={15} strokeWidth={2} className="pointer-events-none absolute left-3.5 text-stone-400" />
-                                        <input
-                                            type="url"
-                                            value={link}
-                                            onChange={e => { setLink(e.target.value); setError(""); }}
-                                            placeholder="https://www.instagram.com/reel/ABC123/"
-                                            className="w-full rounded-2xl border border-stone-200 bg-stone-50/60 py-3.5 pl-10 pr-4 text-sm font-medium text-stone-800 placeholder:text-stone-400 transition-all focus:border-pink-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-pink-100 hover:border-stone-300"
-                                        />
+                            {showForm && (
+                                <div className="overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm">
+                                    <div className="border-b border-fk-border bg-fk-surface-selected px-5 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-fk-md bg-gradient-to-br from-[var(--fk-accent)] to-[var(--fk-gold)] shadow-sm">
+                                                <Instagram size={18} className="text-white" />
+                                            </div>
+                                            <div>
+                                                <p className="text-[13px] font-black text-fk-text">Submit Your Instagram Reel</p>
+                                                <p className="text-[11px] text-fk-text-secondary">Paste the link to your FoodKnock review reel</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                    {error && (
-                                        <div className="flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2">
-                                            <AlertTriangle size={12} className="mt-0.5 shrink-0 text-red-500" />
-                                            <p className="text-[11px] font-medium text-red-600">{error}</p>
+
+                                    <form onSubmit={handleSubmit} className="space-y-4 p-5">
+                                        <div className="space-y-1.5 rounded-fk-md border border-fk-border bg-fk-gold-soft px-4 py-3">
+                                            <p className="text-[11px] font-black text-fk-text">Before you submit, make sure:</p>
+                                            {[
+                                                "Your reel is publicly visible (not private)",
+                                                "FoodKnock is clearly visible in the video",
+                                                "Link format: instagram.com/reel/... or instagram.com/p/...",
+                                            ].map((t) => (
+                                                <div key={t} className="flex items-start gap-2">
+                                                    <CheckCircle2 size={11} className="mt-0.5 shrink-0 text-[var(--fk-accent)]" />
+                                                    <p className="text-[11px] text-fk-text-secondary">{t}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="flex flex-col gap-1.5">
+                                            <label className="text-[11px] font-black uppercase tracking-[0.18em] text-fk-text-secondary">
+                                                Instagram Reel Link <span className="text-[var(--fk-accent)]">*</span>
+                                            </label>
+                                            <div className="relative flex items-center">
+                                                <Instagram size={15} strokeWidth={2} className="pointer-events-none absolute left-3.5 text-fk-text-tertiary" />
+                                                <input
+                                                    type="url"
+                                                    value={link}
+                                                    onChange={(e) => { setLink(e.target.value); setError(""); }}
+                                                    placeholder="https://www.instagram.com/reel/ABC123/"
+                                                    aria-invalid={!!error}
+                                                    className={`w-full rounded-fk-md border bg-fk-surface-interactive py-3.5 pl-10 pr-4 text-sm font-medium text-fk-text placeholder:text-fk-text-tertiary transition-all focus:bg-fk-surface-elevated focus:outline-none focus:ring-2 ${
+                                                        error
+                                                            ? "border-fk-danger focus:border-fk-danger focus:ring-fk-danger/15"
+                                                            : "border-fk-border focus:border-[var(--fk-accent)] focus:ring-[var(--fk-accent)]/15"
+                                                    }`}
+                                                />
+                                            </div>
+                                            {error && (
+                                                <div className="flex items-start gap-2 rounded-fk-md border border-fk-danger/30 bg-fk-danger/10 px-3 py-2">
+                                                    <AlertTriangle size={12} className="mt-0.5 shrink-0 text-fk-danger" />
+                                                    <p className="text-[11px] font-semibold text-fk-danger">{error}</p>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <button
+                                            type="submit"
+                                            disabled={submitting}
+                                            className="group flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-fk-lg bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] py-4 text-[15px] font-black text-white shadow-fk-md transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
+                                        >
+                                            {submitting
+                                                ? <><Loader2 size={17} className="animate-spin" /> Submitting…</>
+                                                : <><Gift size={17} strokeWidth={2.5} /> Submit &amp; Claim Free Burger</>}
+                                        </button>
+
+                                        <p className="text-center text-[10.5px] text-fk-text-tertiary">
+                                            By submitting you agree that the review is genuine and the reel is publicly visible.
+                                        </p>
+                                    </form>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* RIGHT — status + reward info (sticky on desktop) */}
+                        <div className="order-1 min-w-0 lg:order-2 lg:sticky lg:top-24 lg:self-start">
+                            {loadingStatus ? (
+                                <div className="flex items-center justify-center rounded-fk-lg border border-fk-border bg-fk-surface-elevated py-16">
+                                    <Loader2 size={24} className="animate-spin text-[var(--fk-accent)]" />
+                                </div>
+                            ) : alreadySubmitted ? (
+                                <div className="space-y-3">
+                                    <StatusCard sub={submission!} />
+                                    {submission?.status !== "rejected" && (
+                                        <div className="rounded-fk-md border border-fk-border bg-fk-surface-selected px-4 py-3">
+                                            <p className="text-[11.5px] text-fk-text-secondary">
+                                                Each account can submit once. Questions?{" "}
+                                                <Link href="/contact" className="font-bold text-[var(--fk-accent)] hover:underline">
+                                                    Contact us
+                                                </Link>
+                                            </p>
                                         </div>
                                     )}
                                 </div>
-
-                                {/* Submit */}
-                                <button
-                                    type="submit"
-                                    disabled={submitting}
-                                    className="group flex w-full items-center justify-center gap-2.5 overflow-hidden rounded-2xl bg-gradient-to-r from-pink-500 via-rose-500 to-orange-500 py-4 text-[15px] font-black text-white shadow-lg shadow-pink-200/60 transition-all hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
-                                >
-                                    {submitting
-                                        ? <><Loader2 size={17} className="animate-spin" /> Submitting…</>
-                                        : <><Gift size={17} strokeWidth={2.5} /> Submit & Claim Free Burger</>}
-                                </button>
-
-                                <p className="text-center text-[10.5px] text-stone-400">
-                                    By submitting you agree that the review is genuine and the reel is publicly visible.
-                                </p>
-                            </form>
+                            ) : success ? (
+                                <div className="overflow-hidden rounded-fk-lg border border-fk-success/30 bg-fk-success/10 p-6 text-center shadow-sm">
+                                    <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-fk-md border border-fk-success/30 bg-fk-surface-elevated shadow-sm">
+                                        <CheckCircle2 size={28} className="text-fk-success" />
+                                    </div>
+                                    <h3 className="text-lg font-black text-fk-text">Submitted Successfully! 🎉</h3>
+                                    <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-fk-text-secondary">
+                                        Your review is under verification. Once approved, a{" "}
+                                        <span className="font-black text-[var(--fk-accent)]">FREE Burger 🍔</span> will be
+                                        automatically added to your next order of ₹150+.
+                                    </p>
+                                    <div className="mt-5 flex flex-wrap justify-center gap-3">
+                                        <Link href="/menu"
+                                              className="flex items-center gap-2 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-5 py-2.5 text-[13px] font-black text-white shadow-fk-md transition-all hover:brightness-110 active:scale-95">
+                                            Browse Menu <ArrowRight size={13} />
+                                        </Link>
+                                    </div>
+                                </div>
+                            ) : (
+                                <RewardInfoCard />
+                            )}
                         </div>
-                    )}
+                    </div>
 
-                    {/* ── Social proof wall ── */}
+                    {/* ── Supporting info — full width ── */}
                     <ReviewWall reviews={reviews} />
 
-                    {/* ── FAQ strip ── */}
-                    <div className="mt-10 space-y-3">
-                        <p className="text-[11px] font-black uppercase tracking-[0.22em] text-stone-400">FAQ</p>
+                    <div className="mt-8 space-y-3">
+                        <p className="text-[11px] font-black uppercase tracking-[0.2em] text-fk-text-tertiary">FAQ</p>
                         {[
-                            { q:"How long does verification take?",          a:"Usually within 24 hours. We check that the reel is genuine and publicly visible."  },
-                            { q:"Which item is free?",                       a:"A Free Burger (₹0) is automatically added to your cart on your next order of ₹150+."},
-                            { q:"Can I choose Free Pizza instead?",          a:"By default it's a burger — the admin can switch it to pizza when approving."         },
-                            { q:"What if my reel gets rejected?",            a:"Make sure your reel is public and clearly shows FoodKnock. Contact us if you think it was a mistake."},
+                            { q: "How long does verification take?",  a: "Usually within 24 hours. We check that the reel is genuine and publicly visible." },
+                            { q: "Which item is free?",                a: "A Free Burger (₹0) is automatically added to your cart on your next order of ₹150+." },
+                            { q: "Can I choose Free Pizza instead?",   a: "By default it's a burger — the admin can switch it to pizza when approving." },
+                            { q: "What if my reel gets rejected?",     a: "Make sure your reel is public and clearly shows FoodKnock. Contact us if you think it was a mistake." },
                         ].map((f, i) => (
-                            <div key={i} className="rounded-2xl border border-stone-100 bg-white px-4 py-3.5">
-                                <p className="text-[12.5px] font-black text-stone-800">{f.q}</p>
-                                <p className="mt-1 text-[11.5px] text-stone-500">{f.a}</p>
+                            <div key={i} className="rounded-fk-md border border-fk-border bg-fk-surface-elevated px-4 py-3.5">
+                                <p className="text-[12.5px] font-black text-fk-text">{f.q}</p>
+                                <p className="mt-1 text-[11.5px] text-fk-text-secondary">{f.a}</p>
                             </div>
                         ))}
                     </div>

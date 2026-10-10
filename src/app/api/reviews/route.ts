@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import Review from "@/models/Review";
+import { isRateLimited, getClientIp } from "@/lib/rateLimit";
 
 // ── GET ───────────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -27,8 +28,11 @@ export async function GET(req: NextRequest) {
             ];
         }
 
+        // PHASE 6: bounded — this is read by both the public reviews page
+        // and the admin moderation list; neither needs an unbounded fetch.
         const reviews = await Review.find(query)
             .sort({ createdAt: -1 })
+            .limit(200)
             .lean();
 
         return NextResponse.json({ success: true, reviews });
@@ -39,8 +43,20 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ──────────────────────────────────────────────────────────────────
+// PHASE 3: open, unauthenticated submission — adds a light per-IP rate
+// limit (10/hour) against spam/abuse without touching the existing
+// "no auth required, checked client-side" design decision.
 export async function POST(req: NextRequest) {
     try {
+        const ip = getClientIp(req);
+        const limited = await isRateLimited(`review-submit:${ip}`, 10, 60 * 60 * 1000);
+        if (limited) {
+            return NextResponse.json(
+                { success: false, message: "Too many submissions. Please try again later." },
+                { status: 429 }
+            );
+        }
+
         await connectDB();
 
         const { userName, rating, comment } = await req.json();
@@ -62,11 +78,13 @@ export async function POST(req: NextRequest) {
             userName: userName.trim(),
             rating,
             comment:  comment.trim(),
-            // isApproved defaults to true per your schema
+            // Phase 17.2 (F5): isApproved now defaults to false — see
+            // Review.ts's header comment. Submission stays open/anonymous;
+            // publication requires admin moderation.
         });
 
         return NextResponse.json(
-            { success: true, message: "Review submitted!", review },
+            { success: true, message: "Thanks! Your review will appear once approved.", review },
             { status: 201 }
         );
     } catch (error) {

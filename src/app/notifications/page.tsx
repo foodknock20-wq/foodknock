@@ -22,7 +22,7 @@ import { redirect } from "next/navigation";
 import { verifyToken } from "@/lib/auth";
 import { fetchInboxPage, fetchUnreadCount } from "@/lib/notifications/inboxQuery";
 import NotificationInbox from "@/components/notifications/NotificationInbox";
-import Navbar from "@/components/shared/Navbar";
+import CustomerShell from "@/components/shell/CustomerShell";
 import Footer from "@/components/shared/Footer";
 
 async function getAuthedUserId(): Promise<string | null> {
@@ -41,7 +41,7 @@ export default async function NotificationsPage() {
     const userId = await getAuthedUserId();
 
     if (!userId) {
-        redirect("/auth?redirect=/notifications");
+        redirect("/auth?mode=login&redirect=/notifications");
     }
 
     const [firstPage, unreadCount] = await Promise.all([
@@ -50,8 +50,7 @@ export default async function NotificationsPage() {
     ]);
 
     return (
-        <>
-            <Navbar />
+        <CustomerShell>
             <NotificationInbox
                 initialItems={firstPage.items}
                 initialNextCursor={firstPage.nextCursor}
@@ -59,6 +58,6 @@ export default async function NotificationsPage() {
                 initialUnreadCount={unreadCount}
             />
             <Footer />
-        </>
+        </CustomerShell>
     );
 }

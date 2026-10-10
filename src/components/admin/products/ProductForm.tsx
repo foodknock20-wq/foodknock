@@ -32,14 +32,13 @@ type Props = {
     mode: "create" | "edit";
     productId?: string;
     initialData?: Partial<ProductFormData>;
+    /** Live distinct category values from the catalog (Phase 15E — never a
+     *  hardcoded array; a static list silently drifted out of sync with
+     *  production categories like "Thali"/"Chocolate"/"Cake", corrupting
+     *  category on save whenever an admin edited one of those products and
+     *  touched the dropdown). Free text is still allowed for a new category. */
+    categories: string[];
 };
-
-const CATEGORIES = [
-    "Coffee", "Cold Drinks", "Cold Coffee", "Tea", "Juice", "Shake",
-    "Burger", "Pizza", "Sandwich", "Snacks", "Combos", "Ice Cream",
-    "Momos", "Fries", "Pasta", "Noodles", "Maggi", "Chinese",
-    "Pav Bhaji", "Patties", "Desserts", "Other",
-];
 
 const EMPTY: ProductFormData = {
     name: "", slug: "", description: "", shortDescription: "",
@@ -164,7 +163,7 @@ function SectionCard({
 }
 
 // ─── Component ────────────────────────────────────────────────────────────
-export default function ProductForm({ mode, productId, initialData }: Props) {
+export default function ProductForm({ mode, productId, initialData, categories }: Props) {
     const router = useRouter();
     const [form, setForm] = useState<ProductFormData>({ ...EMPTY, ...initialData });
     const [loading, setLoading] = useState(false);
@@ -473,18 +472,32 @@ export default function ProductForm({ mode, productId, initialData }: Props) {
                     {/* Category */}
                     <SectionCard icon={Hash} title="Category">
                         <Label>Category <span className="ml-0.5 text-amber-500">*</span></Label>
-                        <select
+                        <Input
                             value={form.category}
-                            onChange={(e) => set("category")(e.target.value)}
+                            onChange={set("category")}
+                            placeholder="e.g. Pizza, or type a new category"
                             required
-                            className={`${inputBase} appearance-none`}
-                            style={{ backgroundImage: "none" }}
-                        >
-                            <option value="" className="bg-[#0d0d14]">Select a category…</option>
-                            {CATEGORIES.map((c) => (
-                                <option key={c} value={c} className="bg-[#0d0d14]">{c}</option>
-                            ))}
-                        </select>
+                        />
+                        <p className="mt-1.5 text-[10.5px] text-stone-700">
+                            Pick an existing category below, or type a new one.
+                        </p>
+                        {categories.length > 0 && (
+                            <div className="mt-2.5 flex flex-wrap gap-1.5">
+                                {categories.map((c) => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        onClick={() => set("category")(c)}
+                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${form.category === c
+                                                ? "border-amber-500/40 bg-amber-500/15 text-amber-400"
+                                                : "border-white/[0.07] bg-white/[0.02] text-stone-300 hover:border-white/[0.12] hover:text-stone-100"
+                                            }`}
+                                    >
+                                        {c}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </SectionCard>
 
                     {/* Image upload */}
@@ -597,7 +610,7 @@ export default function ProductForm({ mode, productId, initialData }: Props) {
                         <button
                             type="button"
                             onClick={() => router.back()}
-                            className="flex w-full items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.02] py-2.5 text-[12.5px] font-medium text-stone-600 transition-all duration-200 hover:border-white/[0.09] hover:bg-white/[0.04] hover:text-stone-300"
+                            className="flex w-full items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.02] py-2.5 text-[12.5px] font-medium text-stone-300 transition-all duration-200 hover:border-white/[0.09] hover:bg-white/[0.04] hover:text-stone-100"
                         >
                             Cancel
                         </button>

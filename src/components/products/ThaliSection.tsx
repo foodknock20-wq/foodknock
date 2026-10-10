@@ -14,9 +14,8 @@
 
 import { useMemo, useCallback, memo, useRef } from "react";
 import { ArrowRight, Crown, ChevronLeft, ChevronRight } from "lucide-react";
-import { useCartStore } from "@/store/cartStore";
-import { toast } from "react-hot-toast";
 import Link from "next/link";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -53,7 +52,7 @@ const ThaliCard = memo(function ThaliCard({
     product: Product;
     index: number;
 }) {
-    const addItem = useCartStore(s => s.addItem);
+    const { handleAdd: addToCart } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
 
     const pct = product.compareAtPrice && product.compareAtPrice > product.price
@@ -63,18 +62,8 @@ const ThaliCard = memo(function ThaliCard({
     const handleAdd = useCallback((e: React.MouseEvent) => {
         e.preventDefault();
         e.stopPropagation();
-        if (unavailable) return;
-        addItem({
-            _id: product._id, name: product.name, price: product.price,
-            image: product.image, quantity: 1, stock: product.stock, category: product.category,
-        });
-        toast.success(`${product.name} added! 🥘`, {
-            style: {
-                background: "#fef3c7", color: "#78350f",
-                border: "1px solid #fcd34d", borderRadius: "14px",
-            },
-        });
-    }, [addItem, product, unavailable]);
+        addToCart(product, `${product.name} added! 🥘`);
+    }, [addToCart, product]);
 
     // PERF: image src with cheap fallback — no useMemo needed for string concat
     const imgSrc = product.image || FALLBACK;
@@ -82,7 +71,7 @@ const ThaliCard = memo(function ThaliCard({
     return (
         <Link
             href={`/menu/${product.slug}`}
-            className={`group snap-start shrink-0 flex flex-col overflow-hidden rounded-3xl bg-white transition-all duration-300
+            className={`group snap-start shrink-0 flex flex-col overflow-hidden rounded-3xl bg-fk-surface-elevated transition-all duration-300
                 min-w-[84vw] sm:min-w-[46vw] md:min-w-[320px] lg:min-w-[300px]
                 ${unavailable ? "opacity-65" : "hover:-translate-y-1 hover:shadow-2xl hover:shadow-amber-200/60"}`}
             style={{
@@ -140,8 +129,8 @@ const ThaliCard = memo(function ThaliCard({
 
                 {/* Unavailable overlay */}
                 {unavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/30 backdrop-blur-[2px] pointer-events-none">
-                        <span className="rounded-full bg-white/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-stone-500">
+                    <div className="absolute inset-0 flex items-center justify-center bg-fk-surface-elevated/30 backdrop-blur-[2px] pointer-events-none">
+                        <span className="rounded-full bg-fk-surface-elevated/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-fk-text-secondary">
                             Unavailable
                         </span>
                     </div>
@@ -149,10 +138,10 @@ const ThaliCard = memo(function ThaliCard({
 
                 {/* Price pill */}
                 <div className="absolute bottom-3 left-3 pointer-events-none">
-                    <div className="flex items-baseline gap-1.5 rounded-xl bg-white/95 px-3 py-1.5 shadow-lg backdrop-blur-sm">
+                    <div className="flex items-baseline gap-1.5 rounded-xl bg-fk-surface-elevated/95 px-3 py-1.5 shadow-lg backdrop-blur-sm">
                         <span className="text-[17px] font-black text-amber-700">₹{product.price}</span>
                         {product.compareAtPrice && product.compareAtPrice > product.price && (
-                            <span className="text-[11px] text-stone-400 line-through">₹{product.compareAtPrice}</span>
+                            <span className="text-[11px] text-fk-text-tertiary line-through">₹{product.compareAtPrice}</span>
                         )}
                     </div>
                 </div>
@@ -161,7 +150,7 @@ const ThaliCard = memo(function ThaliCard({
                 <div className="absolute bottom-3.5 right-3 pointer-events-none">
                     <span className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-bold ${!unavailable ? "bg-green-500/90 text-white" : "bg-red-400/80 text-white"
                         }`}>
-                        <span className="h-1.5 w-1.5 rounded-full bg-white" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-fk-surface-elevated" />
                         {!unavailable ? "Available" : "Out"}
                     </span>
                 </div>
@@ -181,13 +170,13 @@ const ThaliCard = memo(function ThaliCard({
                 </span>
 
                 <h3
-                    className="line-clamp-2 text-[15px] font-black leading-snug text-stone-900"
+                    className="line-clamp-2 text-[15px] font-black leading-snug text-fk-text"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}
                 >
                     {product.name}
                 </h3>
 
-                <p className="mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-stone-400">
+                <p className="mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed text-fk-text-tertiary">
                     {product.shortDescription || product.description}
                 </p>
 
@@ -206,7 +195,7 @@ const ThaliCard = memo(function ThaliCard({
                             : {}),
                     }}
                     className={`mt-auto w-full rounded-xl py-3 text-[12px] font-black transition-all duration-200 ${unavailable
-                            ? "cursor-not-allowed bg-stone-100 text-stone-400"
+                            ? "cursor-not-allowed bg-stone-100 text-fk-text-tertiary"
                             : "text-white hover:brightness-110 active:scale-[0.97]"
                         }`}
                 >
@@ -285,12 +274,12 @@ const ThaliSection = memo(function ThaliSection(props: ThaliSectionProps) {
                                 </span>
                             </div>
                             <h2
-                                className="text-2xl font-black text-stone-900 md:text-3xl"
+                                className="text-2xl font-black text-fk-text md:text-3xl"
                                 style={{ fontFamily: "'Playfair Display',Georgia,serif" }}
                             >
                                 🥘 Complete Meals
                             </h2>
-                            <p className="mt-0.5 text-[12px] text-stone-400">
+                            <p className="mt-0.5 text-[12px] text-fk-text-tertiary">
                                 {availableCount} meal{availableCount !== 1 ? "s" : ""} available
                             </p>
                         </div>
@@ -301,14 +290,14 @@ const ThaliSection = memo(function ThaliSection(props: ThaliSectionProps) {
                         <button
                             onClick={scrollLeft}
                             aria-label="Scroll left"
-                            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-amber-200 bg-white text-amber-700 shadow-sm transition-all hover:bg-amber-50 hover:shadow-md"
+                            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-amber-200 bg-fk-surface-elevated text-amber-700 shadow-sm transition-all hover:bg-amber-50 hover:shadow-md"
                         >
                             <ChevronLeft size={16} strokeWidth={2.5} />
                         </button>
                         <button
                             onClick={scrollRight}
                             aria-label="Scroll right"
-                            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-amber-200 bg-white text-amber-700 shadow-sm transition-all hover:bg-amber-50 hover:shadow-md"
+                            className="hidden md:flex h-9 w-9 items-center justify-center rounded-full border border-amber-200 bg-fk-surface-elevated text-amber-700 shadow-sm transition-all hover:bg-amber-50 hover:shadow-md"
                         >
                             <ChevronRight size={16} strokeWidth={2.5} />
                         </button>
@@ -327,7 +316,7 @@ const ThaliSection = memo(function ThaliSection(props: ThaliSectionProps) {
 
                 {/* ── Value proposition strip ── */}
                 <div className="mb-5 px-4 md:px-8">
-                    <div className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-white/60 px-4 py-2.5 backdrop-blur-sm">
+                    <div className="inline-flex items-center gap-2 rounded-2xl border border-amber-200 bg-fk-surface-elevated/60 px-4 py-2.5 backdrop-blur-sm">
                         <span className="text-lg">👑</span>
                         <p className="text-[12px] font-semibold text-stone-600">
                             Complete meals with multiple dishes —{" "}

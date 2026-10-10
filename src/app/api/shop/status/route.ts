@@ -16,12 +16,21 @@ import { getShopStatus, setShopStatus } from "@/models/Shop";
 import { verifyToken } from "@/lib/auth";
 import { connectDB } from "@/lib/db";
 import User from "@/models/User";
+import { isValidCloseReasonCode, describeCloseReason } from "@/lib/shopCloseReasons";
 
 // ── GET — public ──────────────────────────────────────────────────────────────
 export async function GET() {
     try {
-        const { isOpen } = await getShopStatus();
-        const res = NextResponse.json({ success: true, isOpen });
+        const status = await getShopStatus();
+        const res = NextResponse.json({
+            success: true,
+            isOpen: status.isOpen,
+            closedReasonCode: status.closedReasonCode,
+            closedReasonText: status.closedReasonText,
+            // Phase 15E.8 — human label, derived here (not stored) so admin
+            // UI/customer messaging never drift if the label catalog changes.
+            closedReasonLabel: describeCloseReason(status.closedReasonCode, status.closedReasonText),
+        });
         // PERF: CDN caches shop open/closed state for 10 s.
         // Acceptable staleness for a status that changes at most a few times per day.
         // stale-while-revalidate=5 means stale data served for max 5 extra seconds during refresh.
@@ -30,7 +39,7 @@ export async function GET() {
     } catch (error) {
         console.error("SHOP_STATUS_GET_ERROR", error);
         // Fail open: if we can't reach DB, don't block customers from ordering.
-        return NextResponse.json({ success: true, isOpen: true });
+        return NextResponse.json({ success: true, isOpen: true, closedReasonCode: null, closedReasonText: null, closedReasonLabel: null });
     }
 }
 
@@ -81,12 +90,28 @@ export async function POST(req: Request) {
             );
         }
 
-        const { isOpen } = await setShopStatus(body.isOpen);
+        let reason: { code: string | null; text: string | null } | undefined;
+        if (body.isOpen === false) {
+            const reasonCode = typeof body.reasonCode === "string" ? body.reasonCode : null;
+            if (reasonCode && !isValidCloseReasonCode(reasonCode)) {
+                return NextResponse.json({ success: false, message: "Invalid close reason" }, { status: 400 });
+            }
+            const reasonText = typeof body.reasonText === "string" ? body.reasonText.trim().slice(0, 200) : null;
+            if (reasonCode === "custom" && !reasonText) {
+                return NextResponse.json({ success: false, message: "Custom reason text is required" }, { status: 400 });
+            }
+            reason = { code: reasonCode, text: reasonText };
+        }
+
+        const status = await setShopStatus(body.isOpen, reason);
 
         return NextResponse.json({
             success: true,
-            isOpen,
-            message: isOpen ? "Shop is now open" : "Shop is now closed",
+            isOpen: status.isOpen,
+            closedReasonCode: status.closedReasonCode,
+            closedReasonText: status.closedReasonText,
+            closedReasonLabel: describeCloseReason(status.closedReasonCode, status.closedReasonText),
+            message: status.isOpen ? "Shop is now open" : "Shop is now closed",
         });
     } catch (error) {
         console.error("SHOP_STATUS_POST_ERROR", error);

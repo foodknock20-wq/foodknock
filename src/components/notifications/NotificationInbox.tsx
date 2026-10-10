@@ -411,9 +411,12 @@ export default function NotificationInbox({
                 </div>
             </section>
 
-            {/* ── Sticky filter + search ─────────────────────────────────────── */}
+            {/* ── Sticky filter + search ──
+                Phase 10B: extra clearance below lg: for Navbar 2.0's
+                mobile-only second row (location bar); unchanged at lg:
+                since that row never renders there. */}
             {items.length > 0 && (
-                <div className="sticky top-[68px] z-30 border-b border-amber-100 bg-[#FFFBF5]/95 shadow-sm backdrop-blur-xl">
+                <div className="sticky top-[124px] z-30 border-b border-amber-100 bg-[#FFFBF5]/95 shadow-sm backdrop-blur-xl lg:top-[68px]">
                     <div className="mx-auto max-w-4xl px-4 md:px-8">
                         <div className="flex items-center justify-between gap-2 py-3">
                             <div className="flex flex-1 items-center gap-1.5 overflow-x-auto scrollbar-none" role="tablist" aria-label="Filter notifications by category">

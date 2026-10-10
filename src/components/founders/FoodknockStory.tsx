@@ -1,4 +1,14 @@
 // src/components/founders/FoodknockStory.tsx
+//
+// FOUNDERS PAGE REDESIGN — rebuilt as a connected timeline narrative rather
+// than four identical white cards followed by a separate large rounded
+// panel. Desktop keeps the four steps in one row, now joined by a single
+// connecting line that actually reads as "a sequence," not just a grid.
+// Mobile drops to a vertical timeline (left rail + dot) instead of forcing
+// four narrow columns. The previous version's `onMouseEnter`/`onMouseLeave`
+// handlers imperatively wrote inline `boxShadow` on hover — removed; the
+// step marker's own `group-hover:scale-105` (plain CSS) is enough feedback
+// without re-introducing a JS-driven inline style on hover.
 const pillars = [
     {
         step: "01",
@@ -26,10 +36,24 @@ const pillars = [
     },
 ];
 
+const missionPillars = [
+    {
+        label: "Our Mission",
+        text: "Make premium food ordering accessible to every household in Rajasthan — with quality that doesn't compromise.",
+    },
+    {
+        label: "Our Standard",
+        text: "Every order is prepared fresh. No shortcuts on ingredients. No excuses on packaging. Every time.",
+    },
+    {
+        label: "Our Promise",
+        text: "Fast, honest, and worth coming back to. That's the bar we set ourselves — and the one our customers hold us to.",
+    },
+];
+
 export default function FoodknockStory() {
     return (
-        <section className="relative px-4 py-24 sm:px-6 md:px-8 md:py-32">
-            {/* Ambient gradient — quieter */}
+        <section className="relative px-4 py-14 sm:px-6 sm:py-20 md:px-8 md:py-24">
             <div
                 className="pointer-events-none absolute inset-0 opacity-30"
                 style={{
@@ -41,15 +65,15 @@ export default function FoodknockStory() {
 
             <div className="relative mx-auto max-w-6xl">
                 {/* Section header */}
-                <div className="mb-16 max-w-xl md:mb-20">
-                    <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-white/70 px-4 py-1.5 backdrop-blur-sm">
+                <div className="mb-10 max-w-xl md:mb-14">
+                    <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-orange-200/70 bg-white/70 px-3.5 py-1.5 backdrop-blur-sm">
                         <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
-                        <p className="text-[10.5px] font-bold uppercase tracking-[0.28em] text-orange-600">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-orange-600">
                             How We Got Here
                         </p>
                     </div>
                     <h2
-                        className="mb-4 text-[2.25rem] font-black leading-[1.12] tracking-[-0.015em] text-gray-900 sm:text-4xl md:text-[2.75rem]"
+                        className="mb-3 text-[clamp(1.6rem,4vw,2.75rem)] font-black leading-[1.12] tracking-[-0.015em] text-gray-900"
                         style={{ fontFamily: "'Playfair Display', Georgia, serif" }}
                     >
                         The FoodKnock Story
@@ -60,69 +84,76 @@ export default function FoodknockStory() {
                     </p>
                 </div>
 
-                {/* Story pillars — timeline feel via connecting rhythm, subtle depth on hover */}
-                <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                    {pillars.map(({ step, color, title, body }) => (
+                {/* ── Desktop: connected horizontal timeline ── */}
+                <div className="hidden md:block">
+                    <div className="relative grid grid-cols-4 gap-6">
+                        {/* Connecting rail, behind the step markers */}
                         <div
-                            key={step}
-                            className="group relative rounded-2xl border border-black/[0.06] bg-white p-6 transition-all duration-300 ease-out hover:-translate-y-1 hover:border-black/[0.08] sm:p-7"
-                            style={{
-                                boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
-                            }}
-                            onMouseEnter={(e) => {
-                                e.currentTarget.style.boxShadow = `0 16px 32px -12px ${color}30`;
-                            }}
-                            onMouseLeave={(e) => {
-                                e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.04)";
-                            }}
-                        >
-                            {/* Step indicator */}
-                            <div
-                                className="mb-6 inline-flex h-9 w-9 items-center justify-center rounded-xl text-[12px] font-black text-white transition-transform duration-300 ease-out group-hover:scale-105"
-                                style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
-                            >
-                                {step}
+                            className="absolute left-[12.5%] right-[12.5%] top-[18px] h-px bg-gradient-to-r from-orange-200 via-amber-200 to-indigo-200"
+                            aria-hidden="true"
+                        />
+                        {pillars.map(({ step, color, title, body }) => (
+                            <div key={step} className="group relative pt-0">
+                                <div
+                                    className="relative z-10 mb-5 inline-flex h-9 w-9 items-center justify-center rounded-full text-[12px] font-black text-white ring-4 ring-[#FFFBF5] transition-transform duration-300 ease-out group-hover:scale-105"
+                                    style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
+                                >
+                                    {step}
+                                </div>
+                                <h3 className="mb-2 text-[15px] font-black leading-snug text-gray-900">
+                                    {title}
+                                </h3>
+                                <p className="text-[13.5px] leading-[1.7] text-gray-500">
+                                    {body}
+                                </p>
                             </div>
+                        ))}
+                    </div>
+                </div>
 
-                            <h3 className="mb-2.5 text-[15.5px] font-black leading-snug text-gray-900">
-                                {title}
-                            </h3>
-                            <p className="text-[13.5px] leading-[1.7] text-gray-500">
-                                {body}
-                            </p>
+                {/* ── Mobile: vertical timeline ── */}
+                <div className="space-y-7 md:hidden">
+                    {pillars.map(({ step, color, title, body }, i) => (
+                        <div key={step} className="relative flex gap-4 pl-0">
+                            <div className="flex flex-col items-center">
+                                <div
+                                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-black text-white"
+                                    style={{ background: `linear-gradient(135deg, ${color}, ${color}dd)` }}
+                                >
+                                    {step}
+                                </div>
+                                {i < pillars.length - 1 && (
+                                    <div className="mt-1 w-px flex-1 bg-gradient-to-b from-orange-200 to-transparent" aria-hidden="true" />
+                                )}
+                            </div>
+                            <div className="pb-1">
+                                <h3 className="mb-1.5 text-[14.5px] font-black leading-snug text-gray-900">
+                                    {title}
+                                </h3>
+                                <p className="text-[13px] leading-[1.65] text-gray-500">
+                                    {body}
+                                </p>
+                            </div>
                         </div>
                     ))}
                 </div>
 
-                {/* Mission statement block — cleaner, calmer surface */}
-                <div
-                    className="mt-10 rounded-3xl border p-8 sm:p-10 md:p-12"
-                    style={{
-                        borderColor: "rgba(255, 92, 26, 0.16)",
-                        background: "linear-gradient(135deg, #fffaf3 0%, #ffffff 100%)",
-                        boxShadow: "0 1px 2px rgba(0,0,0,0.03)",
-                    }}
-                >
-                    <div className="grid gap-9 sm:grid-cols-3 sm:gap-8">
-                        {[
-                            {
-                                label: "Our Mission",
-                                text: "Make premium food ordering accessible to every household in Rajasthan — with quality that doesn't compromise.",
-                            },
-                            {
-                                label: "Our Standard",
-                                text: "Every order is prepared fresh. No shortcuts on ingredients. No excuses on packaging. Every time.",
-                            },
-                            {
-                                label: "Our Promise",
-                                text: "Fast, honest, and worth coming back to. That's the bar we set ourselves — and the one our customers hold us to.",
-                            },
-                        ].map(({ label, text }) => (
-                            <div key={label}>
-                                <p className="mb-3 text-[10px] font-black uppercase tracking-[0.26em] text-orange-600">
+                {/* ── Mission / Standard / Promise ── */}
+                <div className="mt-12 border-t border-orange-100 pt-10 md:mt-16 md:pt-12">
+                    <div className="grid gap-8 sm:grid-cols-3 sm:gap-6">
+                        {missionPillars.map(({ label, text }, i) => (
+                            <div
+                                key={label}
+                                className={
+                                    i > 0
+                                        ? "sm:border-l sm:border-orange-100 sm:pl-6"
+                                        : undefined
+                                }
+                            >
+                                <p className="mb-2.5 text-[10px] font-black uppercase tracking-[0.24em] text-orange-600">
                                     {label}
                                 </p>
-                                <p className="max-w-[32ch] text-[14px] leading-[1.75] text-gray-600">
+                                <p className="max-w-[32ch] text-[14px] leading-[1.7] text-gray-600">
                                     {text}
                                 </p>
                             </div>

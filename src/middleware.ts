@@ -25,6 +25,10 @@ export function middleware(req: NextRequest) {
     if (!token) {
         const loginUrl = new URL("/auth", req.url);
         loginUrl.searchParams.set("redirect", pathname);
+        // AUTH EXPERIENCE 2.0: /auth now defaults to Create Account — this
+        // is a "you need to be signed in" gate, not a fresh signup, so it
+        // must explicitly open the login view.
+        loginUrl.searchParams.set("mode", "login");
         return NextResponse.redirect(loginUrl);
     }
 

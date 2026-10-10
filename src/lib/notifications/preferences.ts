@@ -121,3 +121,46 @@ export async function isCategoryEnabledForUser(
     const prefs = await getNotificationPreferences(userId);
     return prefs[prefKey];
 }
+
+/**
+ * PHASE 6 — bulk variant of isCategoryEnabledForUser(), for broadcast
+ * filtering (see webPushProvider.ts's filterBroadcastByPreference()).
+ *
+ * Problem this solves: a broadcast to N subscribers with linked users
+ * previously called isCategoryEnabledForUser() — one User.findById() each
+ * — once PER subscriber via Promise.all, so a 2,000-subscriber campaign
+ * fired up to 2,000 individual DB round trips concurrently. This resolves
+ * every userId's preference in exactly ONE query instead.
+ *
+ * Returns a Map so the caller can do an O(1) lookup per subscription
+ * without re-querying. A userId missing from the map (deleted user, bad
+ * reference) is treated as "not enabled" by the caller via `=== true`
+ * checks — same as the single-user function returning false for a user
+ * that doesn't exist.
+ */
+export async function isCategoryEnabledForUsers(
+    userIds: string[],
+    category: NotificationCategory | undefined
+): Promise<Map<string, boolean>> {
+    const result = new Map<string, boolean>();
+    const uniqueIds = [...new Set(userIds)];
+    if (uniqueIds.length === 0) return result;
+
+    const prefKey = category ? CATEGORY_TO_PREFERENCE[category] : undefined;
+    if (!prefKey) {
+        for (const id of uniqueIds) result.set(id, true);
+        return result;
+    }
+
+    await connectDB();
+    const users = await User.find({ _id: { $in: uniqueIds } })
+        .select("notificationPreferences")
+        .lean<Array<{ _id: { toString(): string }; notificationPreferences?: Partial<NotificationPreferences> }>>();
+
+    for (const u of users) {
+        const prefs = { ...NOTIFICATION_PREFERENCE_DEFAULTS, ...(u.notificationPreferences ?? {}) };
+        result.set(u._id.toString(), prefs[prefKey]);
+    }
+
+    return result;
+}

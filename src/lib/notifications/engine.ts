@@ -71,6 +71,9 @@ const EVENT_DEFAULT_CHANNELS: Partial<Record<NotificationEventName, Notification
     // this one-line change is sufficient and verified-safe — no other
     // file needs to change for this event to start reaching WhatsApp.
     "order.delivered": ["push", "whatsapp"],
+    // Phase 14 — push-only, mirrors order.placed/preparing/out_for_delivery
+    // above (no WhatsApp template exists for cancellation yet).
+    "order.cancelled": ["push"],
     // NEW — see file header. loyalty.points_credited / referral.reward_granted
     // already existed as declared, listened-to event names; only the
     // default-channel pinning was missing. Push-only: neither provider
@@ -289,6 +292,7 @@ notificationEngine.listen([
     "order.preparing",
     "order.out_for_delivery",
     "order.delivered",
+    "order.cancelled",
     "auth.otp_requested",
     "auth.password_reset",
     "user.welcome",

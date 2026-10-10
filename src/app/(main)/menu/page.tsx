@@ -15,12 +15,12 @@
 //     Expected Vercel: lower CPU-ms per invocation → cheaper + faster TTFB,
 //     compounds under concurrent traffic on a page that is now always SSR.
 
-import Navbar             from "@/components/shared/Navbar";
 import Footer             from "@/components/shared/Footer";
 import MenuClient         from "@/components/products/MenuClient";
 import { connectDB }      from "@/lib/db";
 import Product            from "@/models/Product";
 import { getShopStatus }  from "@/models/Shop";
+import { describeCloseReason } from "@/lib/shopCloseReasons";
 import { serializeMongoDocs } from "@/lib/serialize";
 import { AlertTriangle }  from "lucide-react";
 import Link                from "next/link";
@@ -79,14 +79,15 @@ async function getProducts() {
 }
 
 export default async function MenuPage() {
-    const [products, { isOpen }] = await Promise.all([
+    const [products, shopStatus] = await Promise.all([
         getProducts(),
-        getShopStatus().catch(() => ({ isOpen: true })),
+        getShopStatus().catch(() => ({ isOpen: true, closedReasonCode: null, closedReasonText: null, closedAt: null })),
     ]);
+    const { isOpen } = shopStatus;
+    const closedReasonLabel = describeCloseReason(shopStatus.closedReasonCode, shopStatus.closedReasonText);
 
     return (
         <>
-            <Navbar />
 
             {/* ── Shop closed banner ── */}
             {!isOpen && (
@@ -96,7 +97,8 @@ export default async function MenuPage() {
                             <AlertTriangle size={15} className="text-red-600" strokeWidth={2.5} />
                         </div>
                         <p className="text-[13px] font-bold text-red-700">
-                            ⚠️ Foodknock is currently closed.{" "}
+                            ⚠️ Foodknock is currently closed
+                            {closedReasonLabel ? <span className="font-medium"> — {closedReasonLabel}</span> : null}.{" "}
                             <span className="font-black">Orders will resume soon.</span>{" "}
                             <span className="font-medium text-red-500">You can still browse our menu.</span>
                         </p>

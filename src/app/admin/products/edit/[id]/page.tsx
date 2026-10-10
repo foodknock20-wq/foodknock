@@ -11,6 +11,7 @@ import Link from "next/link";
 import { ArrowLeft, Pencil, ImageIcon } from "lucide-react";
 import mongoose from "mongoose";
 import { cdnImage } from "@/lib/cdnImage";
+import { getDistinctCategories } from "@/lib/catalogCategories";
 
 type PageProps = { params: Promise<{ id: string }> };
 
@@ -47,7 +48,7 @@ async function getProduct(id: string): Promise<ProductFormData | null> {
 
 export default async function EditProductPage({ params }: PageProps) {
     const { id } = await params;
-    const initialData = await getProduct(id);
+    const [initialData, categories] = await Promise.all([getProduct(id), getDistinctCategories()]);
     if (!initialData) notFound();
 
     return (
@@ -57,7 +58,7 @@ export default async function EditProductPage({ params }: PageProps) {
                 {/* Back nav */}
                 <Link
                     href="/admin/products"
-                    className="group mb-5 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-stone-600 transition-all hover:text-amber-400"
+                    className="group mb-5 inline-flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.2em] text-stone-400 transition-all hover:text-amber-400"
                 >
                     <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.03] transition-all group-hover:border-amber-500/25 group-hover:bg-amber-500/8">
                         <ArrowLeft size={11} className="transition-transform group-hover:-translate-x-0.5" />
@@ -118,7 +119,7 @@ export default async function EditProductPage({ params }: PageProps) {
             </div>
 
             {/* ── Form ── */}
-            <ProductForm mode="edit" productId={id} initialData={initialData} />
+            <ProductForm mode="edit" productId={id} initialData={initialData} categories={categories} />
         </div>
     );
 }

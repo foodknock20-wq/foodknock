@@ -7,10 +7,12 @@ export const dynamic = "force-dynamic";
 // Dark theme, matches existing admin aesthetic
 
 import { useEffect, useState, useCallback } from "react";
+import { toast } from "react-hot-toast";
 import {
     Instagram, CheckCircle2, XCircle, Clock, ExternalLink,
     Loader2, RefreshCw, Gift, Trash2,
 } from "lucide-react";
+import AdminPageHeader from "@/components/admin/shared/AdminPageHeader";
 
 type Submission = {
     _id:           string;
@@ -63,8 +65,14 @@ function ActionBtn({
                 body:    JSON.stringify({ id, action, adminNote: note, rewardItem: item }),
             });
             const data = await res.json();
-            if (data.success) onDone(id, action === "approve" ? "approved" : "rejected", item);
-        } catch {}
+            if (data.success) {
+                onDone(id, action === "approve" ? "approved" : "rejected", item);
+            } else {
+                toast.error(data.message || `Failed to ${action} submission`);
+            }
+        } catch {
+            toast.error("Network error — try again");
+        }
         setLoading(false);
         setShowReject(false);
     };
@@ -84,7 +92,7 @@ function ActionBtn({
                     {loading ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />} Confirm Reject
                 </button>
                 <button onClick={() => setShowReject(false)}
-                    className="rounded-lg border border-white/[0.08] px-3 py-1.5 text-[11px] text-stone-500 hover:text-stone-300">
+                    className="rounded-lg border border-white/[0.08] px-3 py-1.5 text-[11px] text-stone-300 hover:text-stone-100">
                     Cancel
                 </button>
             </div>
@@ -97,7 +105,7 @@ function ActionBtn({
             <div className="flex gap-1.5">
                 {(["burger", "pizza"] as const).map(v => (
                     <button key={v} onClick={() => setItem(v)}
-                        className={`flex-1 rounded-lg border py-1 text-[10px] font-bold uppercase transition-all ${item === v ? "border-amber-500/40 bg-amber-500/15 text-amber-400" : "border-white/[0.06] text-stone-600 hover:text-stone-400"}`}>
+                        className={`flex-1 rounded-lg border py-1 text-[10px] font-bold uppercase transition-all ${item === v ? "border-amber-500/40 bg-amber-500/15 text-amber-400" : "border-white/[0.06] text-stone-400 hover:text-stone-200"}`}>
                         {v === "burger" ? "🍔" : "🍕"} {v}
                     </button>
                 ))}
@@ -130,8 +138,14 @@ function DeleteBtn({ id, onDeleted }: { id: string; onDeleted: (id: string) => v
                 body:    JSON.stringify({ id }),
             });
             const data = await res.json();
-            if (data.success) onDeleted(id);
-        } catch {}
+            if (data.success) {
+                onDeleted(id);
+            } else {
+                toast.error(data.message || "Failed to delete submission");
+            }
+        } catch {
+            toast.error("Network error — try again");
+        }
         setDeleting(false);
         setConfirm(false);
     };
@@ -148,7 +162,7 @@ function DeleteBtn({ id, onDeleted }: { id: string; onDeleted: (id: string) => v
             </button>
             <button
                 onClick={() => setConfirm(false)}
-                className="rounded-lg border border-white/[0.08] px-2.5 py-1 text-[10px] text-stone-600 hover:text-stone-400"
+                className="rounded-lg border border-white/[0.08] px-2.5 py-1 text-[10px] text-stone-300 hover:text-stone-100"
             >
                 No
             </button>
@@ -158,7 +172,7 @@ function DeleteBtn({ id, onDeleted }: { id: string; onDeleted: (id: string) => v
     return (
         <button
             onClick={() => setConfirm(true)}
-            className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-stone-600 transition-all hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
+            className="flex items-center gap-1.5 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[11px] font-semibold text-stone-300 transition-all hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
             title="Delete this submission permanently"
         >
             <Trash2 size={11} strokeWidth={2} />
@@ -178,8 +192,14 @@ export default function AdminReviewRewardsPage() {
         try {
             const res  = await fetch("/api/admin/review-rewards");
             const data = await res.json();
-            if (data.success) setSubmissions(data.submissions);
-        } catch {}
+            if (data.success) {
+                setSubmissions(data.submissions);
+            } else {
+                toast.error(data.message || "Failed to load submissions");
+            }
+        } catch {
+            toast.error("Network error — try again");
+        }
         setLoading(false);
     }, []);
 
@@ -218,17 +238,11 @@ export default function AdminReviewRewardsPage() {
     return (
         <div className="space-y-6">
 
-            {/* ── Header ── */}
-            <div>
-                <div className="mb-1 inline-flex items-center gap-2 rounded-full border border-pink-500/20 bg-pink-500/8 px-3 py-1">
-                    <Instagram size={11} className="text-pink-400" />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-pink-400">Review Rewards</span>
-                </div>
-                <h1 className="font-serif text-2xl font-bold text-white md:text-3xl">Instagram Review Rewards</h1>
-                <p className="mt-1 text-sm text-stone-600">
-                    Approve, reject, or delete user Instagram reel submissions
-                </p>
-            </div>
+            <AdminPageHeader
+                icon={Instagram}
+                title="Review Rewards"
+                description="Approve, reject, or delete user Instagram reel submissions"
+            />
 
             {/* ── Stats ── */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -250,13 +264,13 @@ export default function AdminReviewRewardsPage() {
                 <div className="flex gap-1.5 flex-wrap">
                     {(["all", "pending", "approved", "rejected"] as const).map(f => (
                         <button key={f} onClick={() => setFilter(f)}
-                            className={`rounded-xl border px-3 py-1.5 text-[11px] font-bold capitalize transition-all ${filter === f ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : "border-white/[0.06] text-stone-500 hover:text-stone-300"}`}>
+                            className={`rounded-xl border px-3 py-1.5 text-[11px] font-bold capitalize transition-all ${filter === f ? "border-amber-500/30 bg-amber-500/10 text-amber-400" : "border-white/[0.08] bg-white/[0.02] text-stone-300 hover:text-stone-100"}`}>
                             {f}{f !== "all" ? ` (${counts[f]})` : ""}
                         </button>
                     ))}
                 </div>
                 <button onClick={load} disabled={loading}
-                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.06] px-3 py-1.5 text-[11px] font-semibold text-stone-500 transition-all hover:text-stone-300 disabled:opacity-50">
+                    className="flex items-center gap-1.5 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] font-semibold text-stone-300 transition-all hover:text-stone-100 disabled:opacity-50">
                     <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> Refresh
                 </button>
             </div>

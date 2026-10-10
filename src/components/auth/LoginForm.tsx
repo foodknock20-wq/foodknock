@@ -12,8 +12,29 @@ import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { toast } from "react-hot-toast";
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Loader2, XCircle } from "lucide-react";
+import { markAuthenticatedOnThisDevice } from "@/lib/authDeviceMemory";
 
-type LoginFormProps = { redirectTo?: string; onForgotPassword?: () => void };
+type LoginFormProps = {
+    redirectTo?: string;
+    onForgotPassword?: () => void;
+    onSwitchToRegister: () => void;
+};
+
+// Only ever treat a same-origin, relative path as a valid post-login
+// destination. `redirect` is a client-controllable query param — without
+// this guard, a crafted link like /auth?redirect=https://evil.example
+// would make a successful login hand the browser straight to
+// `window.location.href = dest` pointed at an external site (open
+// redirect / phishing vector). "//evil.example" is also rejected since
+// browsers treat a protocol-relative URL as external too.
+function isSafeInternalPath(path: string | null | undefined): path is string {
+    return (
+        typeof path === "string" &&
+        path.startsWith("/") &&
+        !path.startsWith("//") &&
+        !path.includes("://")
+    );
+}
 type FieldErrors = { email?: string; password?: string };
 
 // ── Field component ──────────────────────────────────────────────────────
@@ -73,7 +94,7 @@ function Field({
 }
 
 // ── LoginForm ────────────────────────────────────────────────────────────
-export default function LoginForm({ redirectTo = "/", onForgotPassword }: LoginFormProps) {
+export default function LoginForm({ redirectTo = "/", onForgotPassword, onSwitchToRegister }: LoginFormProps) {
     const searchParams = useSearchParams();
 
     const [email,       setEmail]       = useState("");
@@ -179,6 +200,12 @@ export default function LoginForm({ redirectTo = "/", onForgotPassword }: LoginF
                 }
             } catch { /* storage might be unavailable */ }
 
+            // AUTH 2.0 — UX-only device marker, set ONLY here (the server
+            // has already confirmed a successful login) — never bypasses
+            // or substitutes for this real auth check. See
+            // src/lib/authDeviceMemory.ts for the full security boundary.
+            markAuthenticatedOnThisDevice();
+
             toast.success("Welcome back! 🍔 Redirecting...", {
                 duration: 2200,
                 style: {
@@ -192,13 +219,14 @@ export default function LoginForm({ redirectTo = "/", onForgotPassword }: LoginF
 
             const role = data.user?.role ?? "user";
             const qParam = searchParams.get("redirect");
-            const intended = qParam || redirectTo;
+            const rawIntended = qParam || redirectTo;
+            const intended = isSafeInternalPath(rawIntended) ? rawIntended : "/";
 
             let dest = "/";
             if (role === "admin") {
-                dest = intended?.startsWith("/admin") ? intended : "/admin";
+                dest = intended.startsWith("/admin") ? intended : "/admin";
             } else {
-                dest = intended && intended !== "/" && !intended.startsWith("/admin") && !intended.startsWith("/auth")
+                dest = intended !== "/" && !intended.startsWith("/admin") && !intended.startsWith("/auth")
                     ? intended : "/";
             }
 
@@ -273,8 +301,15 @@ export default function LoginForm({ redirectTo = "/", onForgotPassword }: LoginF
                 )}
             </button>
 
-            <p className="text-center text-[11px] font-medium text-stone-400">
-                🍽️ Fresh food. Faster ordering. Made for you.
+            <p className="text-center text-[12.5px] font-medium text-stone-500">
+                Don&apos;t have an account?{" "}
+                <button
+                    type="button"
+                    onClick={onSwitchToRegister}
+                    className="font-black text-orange-600 transition-colors hover:text-orange-700"
+                >
+                    Create Account
+                </button>
             </p>
         </form>
     );

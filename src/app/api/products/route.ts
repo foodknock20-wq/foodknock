@@ -8,13 +8,22 @@
 //   4. All other optimizations from previous round preserved (lean, projection, etc.)
 
 import { NextRequest, NextResponse } from "next/server";
+import mongoose from "mongoose";
 import { connectDB } from "@/lib/db";
 import Product from "@/models/Product";
+import { requireAdmin } from "@/lib/apiAuth";
 
 export const revalidate = 30;
 
 const LIST_PROJECTION =
     "name slug shortDescription price compareAtPrice category image stock isAvailable isFeatured rating tags";
+
+// Reorder — re-resolving a past order's items against CURRENT product
+// state needs one bounded query, not one request per line item. Reuses
+// this SAME list endpoint (no second "bulk products" API) via an `ids`
+// filter, capped well below Mongo's $in practical limits so a malformed
+// client payload can never turn into an unbounded query.
+const MAX_BULK_IDS = 50;
 
 function generateSlug(name: string) {
     return name
@@ -41,8 +50,23 @@ export async function GET(req: NextRequest) {
         const slug     = searchParams.get("slug");
         const search   = searchParams.get("search");
         const featured = searchParams.get("featured");
+        const idsParam = searchParams.get("ids");
 
         const query: Record<string, unknown> = {};
+
+        if (idsParam) {
+            const ids = idsParam
+                .split(",")
+                .map((s) => s.trim())
+                .filter((s) => mongoose.Types.ObjectId.isValid(s))
+                .slice(0, MAX_BULK_IDS);
+            // No valid ids at all — respond with an empty, well-formed list
+            // rather than falling through to an unfiltered Product.find({}).
+            if (ids.length === 0) {
+                return NextResponse.json({ success: true, products: [] });
+            }
+            query._id = { $in: ids };
+        }
 
         if (slug)     query.slug = slug;
         if (category && category !== "all") {
@@ -82,8 +106,15 @@ export async function GET(req: NextRequest) {
 }
 
 // ─── POST /api/products ────────────────────────────────────────────────────
+// PHASE 3: previously had NO authorization — any unauthenticated request
+// could create arbitrary products. Admin-only, server-verified.
 export async function POST(req: Request) {
     try {
+        const admin = await requireAdmin(req);
+        if (!admin) {
+            return NextResponse.json({ success: false, message: "Admin access required" }, { status: 403 });
+        }
+
         await connectDB();
 
         const body = await req.json();

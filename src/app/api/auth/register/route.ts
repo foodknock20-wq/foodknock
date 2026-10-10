@@ -25,6 +25,8 @@ import { resolveReferrer } from "@/lib/referral";
 import { sendSignupOtpEmail } from "@/lib/mailer";
 import { notificationEngine } from "@/lib/notifications";
 import { buildOtpRequestedPayload } from "@/lib/notifications/transactionalTemplates";
+import { validateIndianMobile } from "@/lib/validation/phone";
+import { validateFullName } from "@/lib/validation/name";
 import {
     generateOtp,
     hashOtp,
@@ -35,11 +37,19 @@ import {
 } from "@/lib/otp";
 
 // ── Validation ─────────────────────────────────────────────────────────────
+// Customer Identity Validation Repair — name/phone are intentionally NOT
+// validated by zod's min-length here anymore. This route only ever creates
+// NEW accounts (see file header — the actual User is created in
+// verify-signup-otp, never here), so tightening name/phone rules at this
+// exact entry point carries zero backward-compatibility risk: no existing
+// customer record ever passes through this code path again after signup.
+// The shared validateFullName()/validateIndianMobile() below are the
+// SAME validators checkout/profile-edit use — one rule, not three.
 const registerSchema = z.object({
-    name:         z.string().trim().min(2, "Name must be at least 2 characters"),
+    name:         z.string(),
     dob:          z.string().trim().optional(),
     email:        z.string().trim().toLowerCase().email("Valid email is required"),
-    phone:        z.string().trim().min(10, "Phone number must be at least 10 digits"),
+    phone:        z.string(),
     password:     z.string().min(6, "Password must be at least 6 characters"),
     referralCode: z.string().trim().toUpperCase().optional(),
     address: z.object({
@@ -81,6 +91,29 @@ export async function POST(req: Request) {
             );
         }
 
+        // ── Customer Identity Validation Repair — the authoritative check.
+        // Client-side validation (RegisterForm.tsx) exists for UX only; this
+        // is what actually decides whether an account can be created.
+        // Returns structured, per-field errors (never a raw regex/schema
+        // failure message) so the client can highlight the exact field.
+        const nameResult = validateFullName(parsed.data.name);
+        const phoneResult = validateIndianMobile(parsed.data.phone);
+        const identityErrors: Array<{ field: string; code: string; message: string }> = [];
+        if (!nameResult.ok) identityErrors.push({ field: "name", code: nameResult.code, message: nameResult.message });
+        if (!phoneResult.ok) identityErrors.push({ field: "phone", code: phoneResult.code, message: phoneResult.message });
+        if (identityErrors.length > 0 || !nameResult.ok || !phoneResult.ok) {
+            return NextResponse.json(
+                { success: false, message: identityErrors[0]?.message ?? "Invalid input", errors: identityErrors },
+                { status: 400 }
+            );
+        }
+        // From here on, use the validated/normalized values — never the
+        // raw client-submitted strings. `phoneResult.value` is the
+        // canonical bare-10-digit form already used by every existing
+        // User record (see this file's validation/phone.ts import).
+        const validatedName = nameResult.value;
+        const validatedPhone = phoneResult.value;
+
         const email = parsed.data.email.toLowerCase();
 
         await connectDB();
@@ -95,7 +128,7 @@ export async function POST(req: Request) {
         }
 
         // ── Duplicate phone check (against real Users) ────────────────────
-        const existingPhone = await User.findOne({ phone: parsed.data.phone });
+        const existingPhone = await User.findOne({ phone: validatedPhone });
         if (existingPhone) {
             return NextResponse.json(
                 { success: false, message: "Phone number already exists" },
@@ -103,15 +136,24 @@ export async function POST(req: Request) {
             );
         }
 
-        // ── Self-referral guard (fail fast, before spending an OTP) ──────
+        // ── Self-referral guard + referral-code feedback ──────────────────
+        // Referral Experience 2.0: this already calls resolveReferrer() for
+        // the self-referral check — reusing its `referrerId` result (rather
+        // than discarding it) lets the client show "referral code not
+        // found" immediately, with zero new DB queries and zero new
+        // endpoint. An unrecognized code is never an error — registration
+        // proceeds either way (matches the original, unchanged behavior);
+        // this is purely informational for the UI.
+        let referralCodeStatus: "applied" | "not_found" | "none" = "none";
         if (parsed.data.referralCode) {
-            const { selfReferralAttempted } = await resolveReferrer(parsed.data.referralCode, email);
+            const { referrerId, selfReferralAttempted } = await resolveReferrer(parsed.data.referralCode, email);
             if (selfReferralAttempted) {
                 return NextResponse.json(
                     { success: false, message: "You cannot use your own referral code." },
                     { status: 400 }
                 );
             }
+            referralCodeStatus = referrerId ? "applied" : "not_found";
         }
 
         // ── Hash password now — never store plaintext, even temporarily ──
@@ -161,9 +203,9 @@ export async function POST(req: Request) {
             { email },
             {
                 $set: {
-                    name:               parsed.data.name,
+                    name:               validatedName,
                     dob:                parsed.data.dob || undefined,
-                    phone:              parsed.data.phone,
+                    phone:              validatedPhone,
                     password:           hashedPassword,
                     referralCodeInput:  parsed.data.referralCode || "",
                     address:            parsed.data.address,
@@ -181,7 +223,7 @@ export async function POST(req: Request) {
 
         // ── Send the verification email ────────────────────────────────────
         try {
-            await sendSignupOtpEmail({ to: email, name: parsed.data.name, otp });
+            await sendSignupOtpEmail({ to: email, name: validatedName, otp });
         } catch (emailError) {
             console.error("SIGNUP_OTP_EMAIL_ERROR", emailError);
             return NextResponse.json(
@@ -216,7 +258,7 @@ export async function POST(req: Request) {
         // constructing a second, duplicate payload shape by hand.
         const whatsappPayload = buildOtpRequestedPayload({
             name: "auth.otp_requested",
-            data: { otp, flow: "signup", phone: parsed.data.phone, name: parsed.data.name },
+            data: { otp, flow: "signup", phone: validatedPhone, name: validatedName },
         });
         notificationEngine.send(["whatsapp"], {}, whatsappPayload).catch((whatsappError) => {
             console.error("SIGNUP_OTP_WHATSAPP_ERROR", whatsappError);
@@ -227,6 +269,7 @@ export async function POST(req: Request) {
                 success: true,
                 message: "Verification code sent to your email.",
                 email,
+                referralCodeStatus,
             },
             { status: 200 }
         );

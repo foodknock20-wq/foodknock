@@ -27,19 +27,11 @@ export default function FounderCard({ founder, isActive, onClick }: Props) {
                     : "0 1px 2px rgba(0,0,0,0.04), 0 1px 1px rgba(0,0,0,0.02)",
             }}
         >
-            {/* Ambient fill — quiet, only on hover/active, never both stacking hard */}
+            {/* One restrained accent line — doubles as hover affordance and
+                active indicator, instead of layering a separate ambient
+                radial fill underneath it as well. */}
             <div
-                className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                style={{
-                    background: `radial-gradient(ellipse at 75% 0%, ${founder.color}08, transparent 60%)`,
-                    opacity: isActive ? 1 : undefined,
-                }}
-                aria-hidden="true"
-            />
-
-            {/* Top accent line — thinner, calmer */}
-            <div
-                className="absolute left-7 right-7 top-0 h-px transition-opacity duration-300"
+                className="absolute left-7 right-7 top-0 h-px transition-opacity duration-300 group-hover:opacity-70"
                 style={{
                     background: `linear-gradient(90deg, transparent, ${founder.color}90, transparent)`,
                     opacity: isActive ? 0.7 : 0,
@@ -52,7 +44,7 @@ export default function FounderCard({ founder, isActive, onClick }: Props) {
                 <div className="mb-6 flex items-start justify-between gap-3">
                     {/* Avatar */}
                     <div
-                        className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-2xl transition-transform duration-300 ease-out group-hover:scale-[1.02]"
+                        className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl transition-transform duration-300 ease-out group-hover:scale-[1.02]"
                         style={{
                             border: isActive
                                 ? `2px solid ${founder.color}70`
@@ -67,12 +59,6 @@ export default function FounderCard({ founder, isActive, onClick }: Props) {
                             alt={founder.name}
                             className="h-full w-full object-cover"
                         />
-                        {isActive && (
-                            <div
-                                className="absolute inset-0"
-                                style={{ background: `linear-gradient(135deg, ${founder.color}0f, transparent)` }}
-                            />
-                        )}
                     </div>
 
                     {/* Pillar badge — smaller, quieter type, still clear as a status marker */}

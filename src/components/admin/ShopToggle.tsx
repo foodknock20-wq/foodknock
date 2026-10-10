@@ -2,140 +2,129 @@
 
 // src/components/admin/ShopToggle.tsx
 //
-// Displays current shop status and lets admins toggle open / closed.
-// Calls POST /api/shop/status with { isOpen: boolean }.
-// Designed to sit naturally alongside the existing dark admin dashboard theme.
+// Compact shop open/closed control — embedded directly in the Dashboard
+// hero (Phase 15E.8), matching the reference dashboard's inline
+// "Shop [is OPEN] [Close Shop]" composition instead of a separate
+// full-width card (the previous standalone-card version duplicated the
+// hero's own "Store Live" badge — removed in favor of this one real,
+// functional control). Still the single source of truth for shop open/
+// closed admin actions: GET/POST /api/shop/status, which reads/writes the
+// Shop singleton (src/models/Shop.ts) — no second status authority.
+//
+// Phase 15E.8 addition: closing now collects a reason (ShopCloseReasonModal)
+// — see src/lib/shopCloseReasons.ts for the shared allowlist consumed by
+// both this control and customer-facing messaging.
 
 import { useEffect, useState, useCallback } from "react";
-import { Store, Loader2, Power } from "lucide-react";
+import { Store, Loader2, Power, AlertCircle } from "lucide-react";
+import ShopCloseReasonModal from "./ShopCloseReasonModal";
 
 type Status = "open" | "closed" | "loading" | "error";
 
 export default function ShopToggle() {
-    const [status,   setStatus]   = useState<Status>("loading");
+    const [status, setStatus] = useState<Status>("loading");
     const [toggling, setToggling] = useState(false);
+    const [reasonLabel, setReasonLabel] = useState<string | null>(null);
+    const [showReasonModal, setShowReasonModal] = useState(false);
 
-    // ── Fetch current status on mount ────────────────────────────────────────
-    useEffect(() => {
-        fetch("/api/shop/status")
+    const refresh = useCallback(() => {
+        return fetch("/api/shop/status")
             .then((r) => r.ok ? r.json() : Promise.reject())
-            .then((d) => setStatus(d.isOpen ? "open" : "closed"))
+            .then((d) => {
+                setStatus(d.isOpen ? "open" : "closed");
+                setReasonLabel(d.closedReasonLabel ?? null);
+            })
             .catch(() => setStatus("error"));
     }, []);
 
-    // ── Toggle handler ────────────────────────────────────────────────────────
-    const handleToggle = useCallback(async () => {
-        if (toggling || status === "loading" || status === "error") return;
+    useEffect(() => { refresh(); }, [refresh]);
 
-        const nextOpen = status === "closed"; // flip
-
+    const applyStatus = useCallback(async (isOpen: boolean, reasonCode?: string, reasonText?: string) => {
         setToggling(true);
         try {
             const res = await fetch("/api/shop/status", {
-                method:  "POST",
+                method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ isOpen: nextOpen }),
+                body: JSON.stringify({ isOpen, reasonCode, reasonText }),
             });
             const data = await res.json();
             if (data.success) {
                 setStatus(data.isOpen ? "open" : "closed");
+                setReasonLabel(data.closedReasonLabel ?? null);
+                setShowReasonModal(false);
             }
         } catch {
-            // silently ignore — status stays as-is
+            // silently ignore — status stays as-is, admin can retry
         } finally {
             setToggling(false);
         }
-    }, [status, toggling]);
+    }, []);
 
-    // ── Derived UI values ─────────────────────────────────────────────────────
-    const isOpen    = status === "open";
+    const handleClick = () => {
+        if (toggling || status === "loading" || status === "error") return;
+        if (status === "open") {
+            setShowReasonModal(true);
+        } else {
+            applyStatus(true);
+        }
+    };
+
+    const isOpen = status === "open";
     const isLoading = status === "loading" || toggling;
 
     return (
-        <div className="overflow-hidden rounded-2xl border border-white/[0.06] bg-[#111118]">
-            {/* Header row — matches SectionCard style from admin dashboard */}
-            <div className="flex items-center justify-between border-b border-white/[0.06] px-5 py-4">
-                <div className="flex items-center gap-3">
-                    <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
-                        isLoading  ? "bg-white/[0.06]" :
-                        isOpen     ? "bg-emerald-500/15" :
-                                     "bg-rose-500/15"
+        <>
+            <div className="flex flex-col gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+                <div className="flex items-center gap-2">
+                    <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                        status === "loading" ? "bg-white/[0.06]" : isOpen ? "bg-emerald-500/15" : "bg-rose-500/15"
                     }`}>
-                        <Store
-                            size={16}
-                            strokeWidth={2}
-                            className={
-                                isLoading  ? "text-stone-500" :
-                                isOpen     ? "text-emerald-400" :
-                                             "text-rose-400"
-                            }
-                        />
+                        {status === "loading" ? (
+                            <Loader2 size={13} className="animate-spin text-stone-300" />
+                        ) : (
+                            <Store size={13} className={isOpen ? "text-emerald-400" : "text-rose-400"} />
+                        )}
                     </div>
-                    <div>
-                        <h2 className="font-serif text-base font-bold text-white">Shop Status</h2>
-                        <p className="mt-0.5 text-[11px] text-stone-600">Control whether customers can place orders</p>
+                    <div className="leading-tight">
+                        <span className="text-[13px] font-bold text-stone-200">Shop</span>{" "}
+                        {status === "error" ? (
+                            <span className="inline-flex items-center gap-1 text-[12px] font-bold text-amber-400">
+                                <AlertCircle size={11} /> Unknown
+                            </span>
+                        ) : (
+                            <span className={`text-[12px] font-black uppercase ${isOpen ? "text-emerald-400" : "text-rose-400"}`}>
+                                is {status === "loading" ? "…" : isOpen ? "OPEN" : "CLOSED"}
+                            </span>
+                        )}
+                        <p className="text-[10.5px] text-stone-400">
+                            {isOpen ? "Accepting orders now" : reasonLabel ? reasonLabel : "New orders paused"}
+                        </p>
                     </div>
                 </div>
 
-                {/* Status pill */}
-                {status === "loading" ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-[11px] font-semibold text-stone-500">
-                        <Loader2 size={11} className="animate-spin" /> Loading…
-                    </span>
-                ) : status === "error" ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[11px] font-semibold text-amber-400">
-                        Unknown
-                    </span>
-                ) : (
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-bold ${
-                        isOpen
-                            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
-                            : "border-rose-500/20 bg-rose-500/10 text-rose-400"
-                    }`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${isOpen ? "bg-emerald-400 shadow-[0_0_5px_1px_rgba(52,211,153,0.6)]" : "bg-rose-400"}`} />
-                        {isOpen ? "Open" : "Closed"}
-                    </span>
-                )}
-            </div>
-
-            {/* Body */}
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
-                <div>
-                    {status === "error" ? (
-                        <p className="text-sm text-stone-500">Could not reach database. Refresh to retry.</p>
-                    ) : isOpen ? (
-                        <>
-                            <p className="text-sm font-semibold text-stone-200">Customers can browse and order</p>
-                            <p className="mt-0.5 text-[12px] text-stone-600">Click to close the shop and stop new orders</p>
-                        </>
-                    ) : (
-                        <>
-                            <p className="text-sm font-semibold text-stone-200">New orders are paused</p>
-                            <p className="mt-0.5 text-[12px] text-stone-600">Click to reopen and resume accepting orders</p>
-                        </>
-                    )}
-                </div>
-
-                {/* Toggle button */}
                 <button
                     type="button"
-                    onClick={handleToggle}
+                    onClick={handleClick}
                     disabled={isLoading || status === "error"}
-                    aria-label={isOpen ? "Close shop" : "Open shop"}
-                    className={`group flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-[13px] font-bold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
+                    aria-label={isOpen ? "Close shop" : "Reopen shop"}
+                    className={`flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3.5 py-2 text-[12px] font-bold transition-all active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 ${
                         isOpen
-                            ? "border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20"
-                            : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                            ? "border border-rose-500/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20"
+                            : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
                     }`}
                 >
-                    {isLoading ? (
-                        <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                        <Power size={14} strokeWidth={2.5} />
-                    )}
-                    {isLoading ? "Updating…" : isOpen ? "Close Shop" : "Open Shop"}
+                    {isLoading ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} strokeWidth={2.5} />}
+                    {isLoading ? "Updating…" : isOpen ? "Close Shop" : "Reopen"}
                 </button>
             </div>
-        </div>
+
+            {showReasonModal && (
+                <ShopCloseReasonModal
+                    submitting={toggling}
+                    onClose={() => setShowReasonModal(false)}
+                    onConfirm={(code, text) => applyStatus(false, code, text)}
+                />
+            )}
+        </>
     );
 }

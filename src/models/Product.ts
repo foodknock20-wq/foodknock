@@ -20,6 +20,11 @@ const ProductSchema = new Schema(
     tags:             { type: [String], default: [] },
     ingredients:      { type: [String], default: [] },
     rating:           { type: Number, min: 0, max: 5, default: null },
+    // Additive — count of non-hidden ProductReview docs backing `rating`.
+    // Kept in sync by src/lib/productReviews.ts::recalculateProductRating()
+    // on every review create/delete/hide toggle. Historical products simply
+    // read 0 until their first real review (no migration needed).
+    reviewCount:      { type: Number, min: 0, default: 0 },
   },
   { timestamps: true }
 );

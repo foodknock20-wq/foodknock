@@ -17,16 +17,40 @@ export const dynamic = "force-dynamic";
 // If ledger entry for this order isn't found yet (order not delivered yet),
 // fall back to fetching `/api/orders/by-order-id/${orderId}` which uses the
 // human-readable orderId (not _id), and calculate points from totalAmount.
+//
+// FoodKnock Phase 6 — final consistency pass. Token restyle (`--fk-*`,
+// matching every other customer surface) + two real fixes found during
+// the audit:
+//   1. The "delivery tracker" below used to be a hardcoded, STATIC
+//      4-step list (`done: true, true, false, false`) that never reflected
+//      the order's actual status — it would keep showing "Confirmed +
+//      Being Prepared" forever even if the order was already out for
+//      delivery or delivered. This page already fetches the real
+//      `orderMeta.status` (for CustomerCancelControl) but never used it to
+//      drive the tracker. Replaced with the same real, status-driven
+//      `OrderTimeline` component Order Detail uses (src/components/orders/
+//      OrderTimeline.tsx) — one source of truth for "what does this status
+//      mean visually," not two. Needed `orderMeta.orderType` added to the
+//      local type/read — already returned by /api/orders/track/[orderId]
+//      (src/app/api/orders/track/[orderId]/route.ts's `.select()` already
+//      includes it), just wasn't being read here before.
+//   2. Removed two fabricated, specific-sounding estimates that had no
+//      backing data anywhere in the system (no ETA/prep-time field exists
+//      on Order or Product): "Estimated time: 30–45 minutes" and the
+//      "Prep time 10–15 min / Delivery 20–30 min" info strip. Real order
+//      progress is now what the timeline shows instead.
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link               from "next/link";
-import Navbar             from "@/components/shared/Navbar";
+import CustomerShell      from "@/components/shell/CustomerShell";
 import Footer             from "@/components/shared/Footer";
+import OrderTimeline      from "@/components/orders/OrderTimeline";
+import CustomerCancelControl, { type CancellationState } from "@/components/orders/CustomerCancelControl";
 import {
-    CheckCircle2, Clock, Flame, Package, Phone,
+    CheckCircle2, Package, Phone,
     ShoppingBag, Star, Sparkles, ArrowRight, Bike,
-    ChefHat, Home, ReceiptText, Smartphone, Loader2,
+    Smartphone, Loader2,
     ChevronDown, Gift,
 } from "lucide-react";
 
@@ -41,13 +65,13 @@ function calcOrderPoints(amount: number): number {
 
 // ── Ledger type meta ──────────────────────────────────────────────────────────
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
-    order_reward:      { label: "Order Reward",     icon: "🛍️", color: "text-emerald-700", bg: "bg-emerald-50 border-emerald-100" },
+    order_reward:      { label: "Order Reward",     icon: "🛍️", color: "text-fk-success",  bg: "bg-fk-success/10 border-fk-success/20" },
     referral_referrer: { label: "Referral Bonus",   icon: "🤝", color: "text-violet-700",  bg: "bg-violet-50 border-violet-100"   },
-    referral_referee:  { label: "Welcome Bonus",    icon: "🎁", color: "text-amber-700",   bg: "bg-amber-50 border-amber-100"     },
+    referral_referee:  { label: "Welcome Bonus",    icon: "🎁", color: "text-amber-700",   bg: "bg-fk-gold-soft border-amber-100"     },
     redemption:        { label: "Points Redeemed",  icon: "💸", color: "text-rose-700",    bg: "bg-rose-50 border-rose-100"       },
     admin_credit:      { label: "Bonus Credit",     icon: "⭐", color: "text-blue-700",    bg: "bg-blue-50 border-blue-100"       },
-    admin_debit:       { label: "Admin Adjustment", icon: "📋", color: "text-stone-500",   bg: "bg-stone-50 border-stone-100"     },
-    expiry:            { label: "Points Expired",   icon: "⏰", color: "text-stone-400",   bg: "bg-stone-50 border-stone-100"     },
+    admin_debit:       { label: "Admin Adjustment", icon: "📋", color: "text-fk-text-secondary", bg: "bg-fk-surface-interactive border-fk-border" },
+    expiry:            { label: "Points Expired",   icon: "⏰", color: "text-fk-text-tertiary",  bg: "bg-fk-surface-interactive border-fk-border" },
 };
 
 type LedgerEntry = {
@@ -64,14 +88,6 @@ const fmtDate = (iso: string) => {
         });
     } catch { return ""; }
 };
-
-// ── Delivery steps ────────────────────────────────────────────────────────────
-const DELIVERY_STEPS = [
-    { icon: ReceiptText, label: "Order Confirmed",  sub: "We've received your order",       done: true  },
-    { icon: ChefHat,     label: "Being Prepared",   sub: "Our kitchen is on it",            done: true  },
-    { icon: Bike,        label: "Out for Delivery", sub: "Rider will call you when nearby", done: false },
-    { icon: Home,        label: "Delivered",         sub: "Enjoy your meal! 🍽️",            done: false },
-];
 
 // ── Animated counter ──────────────────────────────────────────────────────────
 function AnimCounter({ to }: { to: number }) {
@@ -101,9 +117,9 @@ function PointsCard({
     const belowThreshold = !loading && pts === 0 && totalAmount > 0 && totalAmount < MIN_ORDER_FOR_POINTS;
 
     return (
-        <div className="overflow-hidden rounded-3xl border border-violet-100 bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm">
+        <div className="overflow-hidden rounded-fk-lg border border-violet-100 bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm">
             <div className="flex items-center gap-4 px-5 py-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-md shadow-violet-200">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-fk-md bg-gradient-to-br from-violet-500 to-purple-600 shadow-md shadow-violet-200">
                     <Sparkles size={20} className="text-white" />
                 </div>
                 <div className="flex-1">
@@ -113,38 +129,38 @@ function PointsCard({
                     {loading ? (
                         <div className="mt-1 flex items-center gap-2">
                             <Loader2 size={13} className="animate-spin text-violet-400" />
-                            <span className="text-[12px] text-stone-400">Fetching your points…</span>
+                            <span className="text-[12px] text-fk-text-tertiary">Fetching your points…</span>
                         </div>
                     ) : belowThreshold ? (
                         <>
-                            <p className="text-[13px] font-black text-stone-900">No points on this order</p>
-                            <p className="text-[11px] text-stone-500">
+                            <p className="text-[13px] font-black text-fk-text">No points on this order</p>
+                            <p className="text-[11px] text-fk-text-secondary">
                                 Orders above ₹{MIN_ORDER_FOR_POINTS} earn points. Your order was ₹{Math.round(totalAmount)}.
                             </p>
                         </>
                     ) : pts === 0 ? (
                         <>
-                            <p className="text-[13px] font-black text-stone-900">Points pending delivery</p>
-                            <p className="text-[11px] text-stone-500">
+                            <p className="text-[13px] font-black text-fk-text">Points pending delivery</p>
+                            <p className="text-[11px] text-fk-text-secondary">
                                 Points will be credited once your order is marked delivered.
                             </p>
                         </>
                     ) : delivered ? (
                         <>
-                            <p className="text-[13px] font-black text-stone-900">
+                            <p className="text-[13px] font-black text-fk-text">
                                 <span className="text-violet-700"><AnimCounter to={pts} /> pts</span>{" "}
                                 credited to your account! 🎉
                             </p>
-                            <p className="text-[11px] text-stone-500">Points are now in your FoodKnock wallet.</p>
+                            <p className="text-[11px] text-fk-text-secondary">Points are now in your FoodKnock wallet.</p>
                         </>
                     ) : (
                         <>
-                            <p className="text-[13px] font-black text-stone-900">
-                                You'll earn{" "}
+                            <p className="text-[13px] font-black text-fk-text">
+                                You&apos;ll earn{" "}
                                 <span className="text-violet-700"><AnimCounter to={pts} /> pts</span>{" "}
                                 on delivery
                             </p>
-                            <p className="text-[11px] text-stone-500">
+                            <p className="text-[11px] text-fk-text-secondary">
                                 Points credited once your order is marked delivered.
                             </p>
                         </>
@@ -157,7 +173,7 @@ function PointsCard({
                                 <Star key={i} size={12} className="fill-amber-400 text-amber-400" />
                             ))}
                         </div>
-                        <p className="mt-0.5 text-right text-[10px] font-bold text-stone-400">Loyalty</p>
+                        <p className="mt-0.5 text-right text-[10px] font-bold text-fk-text-tertiary">Loyalty</p>
                     </div>
                 )}
             </div>
@@ -177,13 +193,13 @@ function LedgerSection({
 
     if (loading) {
         return (
-            <div className="overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-fk-lg border border-violet-100 bg-fk-surface-elevated shadow-sm">
                 <div className="border-b border-violet-50 bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4">
-                    <p className="text-sm font-black text-stone-900">Points History</p>
+                    <p className="text-sm font-black text-fk-text">Points History</p>
                 </div>
                 <div className="flex items-center justify-center gap-2 py-10">
                     <Loader2 size={18} className="animate-spin text-violet-400" />
-                    <span className="text-[12px] text-stone-400">Loading history…</span>
+                    <span className="text-[12px] text-fk-text-tertiary">Loading history…</span>
                 </div>
             </div>
         );
@@ -191,14 +207,14 @@ function LedgerSection({
 
     if (ledger.length === 0) {
         return (
-            <div className="overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm">
+            <div className="overflow-hidden rounded-fk-lg border border-violet-100 bg-fk-surface-elevated shadow-sm">
                 <div className="border-b border-violet-50 bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4">
-                    <p className="text-sm font-black text-stone-900">Points History</p>
+                    <p className="text-sm font-black text-fk-text">Points History</p>
                 </div>
                 <div className="flex flex-col items-center gap-3 px-6 py-10 text-center">
                     <span className="text-3xl">🌱</span>
-                    <p className="text-sm font-black text-stone-700">No transactions yet</p>
-                    <p className="max-w-[220px] text-[11px] text-stone-400">
+                    <p className="text-sm font-black text-fk-text-secondary">No transactions yet</p>
+                    <p className="max-w-[220px] text-[11px] text-fk-text-tertiary">
                         Points will appear here once your order is delivered.
                     </p>
                 </div>
@@ -210,26 +226,26 @@ function LedgerSection({
     const hasMore = visible.length < ledger.length;
 
     return (
-        <div className="overflow-hidden rounded-3xl border border-violet-100 bg-white shadow-sm">
+        <div className="overflow-hidden rounded-fk-lg border border-violet-100 bg-fk-surface-elevated shadow-sm">
             {/* Header */}
             <div className="flex items-center justify-between border-b border-violet-50 bg-gradient-to-r from-violet-50 to-purple-50 px-5 py-4">
                 <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-100">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-fk-sm bg-violet-100">
                         <Gift size={14} className="text-violet-600" />
                     </div>
-                    <p className="text-sm font-black text-stone-900">Points History</p>
+                    <p className="text-sm font-black text-fk-text">Points History</p>
                 </div>
-                <span className="rounded-full border border-violet-200 bg-violet-50 px-3 py-0.5 text-[11px] font-black text-violet-600">
+                <span className="rounded-fk-pill border border-violet-200 bg-violet-50 px-3 py-0.5 text-[11px] font-black text-violet-600">
                     {ledger.length} {ledger.length === 1 ? "entry" : "entries"}
                 </span>
             </div>
 
             {/* Rows */}
-            <div className="divide-y divide-stone-50">
+            <div className="divide-y divide-fk-border">
                 {visible.map((entry) => {
                     const meta = TYPE_META[entry.type] ?? {
                         label: entry.type, icon: "📋",
-                        color: "text-stone-500", bg: "bg-stone-50 border-stone-100",
+                        color: "text-fk-text-secondary", bg: "bg-fk-surface-interactive border-fk-border",
                     };
                     const pts      = Number(entry.points) || 0;
                     const after    = Number(entry.balanceAfter) || 0;
@@ -243,28 +259,28 @@ function LedgerSection({
                                 isCurrent ? "bg-violet-50/60" : ""
                             }`}
                         >
-                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border text-lg ${meta.bg}`}>
+                            <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-fk-md border text-lg ${meta.bg}`}>
                                 {meta.icon}
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-1.5">
                                     <p className={`text-[12px] font-black ${meta.color}`}>{meta.label}</p>
                                     {isCurrent && (
-                                        <span className="rounded-full border border-violet-200 bg-violet-100 px-1.5 py-0.5 text-[9px] font-black text-violet-600">
+                                        <span className="rounded-fk-pill border border-violet-200 bg-violet-100 px-1.5 py-0.5 text-[9px] font-black text-violet-600">
                                             This order
                                         </span>
                                     )}
                                 </div>
-                                <p className="truncate text-[11px] text-stone-400">
+                                <p className="truncate text-[11px] text-fk-text-tertiary">
                                     {entry.note || (entry.order?.orderId ? `Order #${entry.order.orderId}` : "—")}
                                 </p>
-                                <p className="text-[10px] text-stone-300">{fmtDate(entry.createdAt)}</p>
+                                <p className="text-[10px] text-fk-text-tertiary">{fmtDate(entry.createdAt)}</p>
                             </div>
                             <div className="shrink-0 text-right">
-                                <p className={`text-sm font-black ${isCredit ? "text-emerald-600" : "text-rose-500"}`}>
+                                <p className={`text-sm font-black ${isCredit ? "text-fk-success" : "text-rose-500"}`}>
                                     {isCredit ? "+" : ""}{pts} pts
                                 </p>
-                                <p className="text-[10px] text-stone-400">Bal: {after}</p>
+                                <p className="text-[10px] text-fk-text-tertiary">Bal: {after}</p>
                             </div>
                         </div>
                     );
@@ -276,7 +292,7 @@ function LedgerSection({
                 <div className="border-t border-violet-50 px-5 py-3">
                     <button
                         onClick={() => setPage((p) => p + 1)}
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-100 bg-violet-50 py-2.5 text-[12px] font-black text-violet-600 transition-all hover:bg-violet-100 active:scale-[0.98]"
+                        className="flex w-full items-center justify-center gap-2 rounded-fk-lg border border-violet-100 bg-violet-50 py-2.5 text-[12px] font-black text-violet-600 transition-all hover:bg-violet-100 active:scale-[0.98]"
                     >
                         <ChevronDown size={14} strokeWidth={2.5} />
                         Load more ({ledger.length - visible.length} remaining)
@@ -313,6 +329,38 @@ function OrderSuccessContent() {
     const [loyaltyLoading, setLoyaltyLoading] = useState(true);
     const [isLoggedIn,   setIsLoggedIn]   = useState(true);
     const fetchedRef = useRef(false);
+
+    // ── Phase 14: cancellation — order metadata needed by CustomerCancelControl ──
+    // Reuses the existing public track-by-orderId endpoint (same one
+    // /my-orders/[orderId] already uses) — no new route for this.
+    // `orderType` added (Phase 6) — already returned by this same endpoint,
+    // just wasn't read before; needed to drive the real OrderTimeline below.
+    type OrderMeta = {
+        _id: string;
+        createdAt: string;
+        status: string;
+        orderType?: "delivery" | "pickup";
+        paymentMethod?: string;
+        cancellation?: CancellationState;
+    };
+    const [orderMeta, setOrderMeta]               = useState<OrderMeta | null>(null);
+    // Lazy initializer reads `orderId` once at mount — avoids a synchronous
+    // setState-in-effect for the "no orderId" case (nothing to fetch, so
+    // loading is simply false from the start rather than flipped off inside
+    // the effect body below).
+    const [orderMetaLoading, setOrderMetaLoading] = useState<boolean>(() => !!orderId);
+    const orderMetaFetchedRef = useRef(false);
+
+    useEffect(() => {
+        if (!orderId || orderMetaFetchedRef.current) return;
+        orderMetaFetchedRef.current = true;
+
+        fetch(`/api/orders/track/${encodeURIComponent(orderId)}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.success && d.order) setOrderMeta(d.order); })
+            .catch(() => {})
+            .finally(() => setOrderMetaLoading(false));
+    }, [orderId]);
 
     useEffect(() => {
         const t1 = setTimeout(() => setVisible(true),  100);
@@ -387,9 +435,9 @@ function OrderSuccessContent() {
             {/* ── Success badge ── */}
             <div className={`mb-8 flex flex-col items-center text-center transition-all duration-700 ${visible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"}`}>
                 <div className="relative mb-6">
-                    <div className={`absolute inset-0 rounded-full bg-emerald-400/20 transition-all duration-1000 ${ringDone ? "scale-[1.6] opacity-0" : "scale-100 opacity-100"}`} />
-                    <div className={`absolute inset-0 rounded-full bg-emerald-400/15 transition-all duration-700 delay-200 ${ringDone ? "scale-[1.4] opacity-0" : "scale-100 opacity-100"}`} />
-                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 shadow-2xl shadow-emerald-300/50">
+                    <div className={`absolute inset-0 rounded-full bg-fk-success/20 transition-all duration-1000 ${ringDone ? "scale-[1.6] opacity-0" : "scale-100 opacity-100"}`} />
+                    <div className={`absolute inset-0 rounded-full bg-fk-success/15 transition-all duration-700 delay-200 ${ringDone ? "scale-[1.4] opacity-0" : "scale-100 opacity-100"}`} />
+                    <div className="relative flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-fk-success to-emerald-600 shadow-2xl shadow-emerald-300/50">
                         <CheckCircle2 size={44} className="text-white" strokeWidth={2.5} />
                     </div>
                     {ringDone && (
@@ -397,7 +445,7 @@ function OrderSuccessContent() {
                             {[0, 60, 120, 180, 240, 300].map((deg) => (
                                 <div
                                     key={deg}
-                                    className="absolute h-2 w-2 animate-ping rounded-full bg-amber-400 shadow-sm shadow-amber-300"
+                                    className="absolute h-2 w-2 animate-ping motion-reduce:animate-none rounded-full bg-fk-gold shadow-sm shadow-amber-300"
                                     style={{
                                         top:               `${50 + 54 * Math.sin((deg * Math.PI) / 180)}%`,
                                         left:              `${50 + 54 * Math.cos((deg * Math.PI) / 180)}%`,
@@ -410,19 +458,19 @@ function OrderSuccessContent() {
                     )}
                 </div>
 
-                <h1 className="text-3xl font-black tracking-tight text-stone-900 md:text-4xl">
+                <h1 className="font-display text-3xl font-black tracking-tight text-fk-text md:text-4xl">
                     Order Placed! 🎉
                 </h1>
-                <p className="mt-2 text-base font-medium text-stone-500">
+                <p className="mt-2 text-base font-medium text-fk-text-secondary">
                     When Hunger Knocks,{" "}
-                    <span className="font-black text-orange-500">FoodKnock Delivers.</span>
+                    <span className="font-black text-[var(--fk-accent)]">FoodKnock Delivers.</span>
                 </p>
 
                 {orderId && (
-                    <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 shadow-sm">
-                        <Package size={13} className="text-orange-500" />
-                        <span className="text-[11px] font-black uppercase tracking-widest text-stone-500">Order ID</span>
-                        <span className="font-mono text-[13px] font-black text-stone-900">
+                    <div className="mt-4 inline-flex items-center gap-2 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-4 py-2 shadow-sm">
+                        <Package size={13} className="text-[var(--fk-accent)]" />
+                        <span className="text-[11px] font-black uppercase tracking-widest text-fk-text-tertiary">Order ID</span>
+                        <span className="font-mono text-[13px] font-black text-fk-text">
                             {orderId.slice(-8).toUpperCase()}
                         </span>
                     </div>
@@ -432,69 +480,73 @@ function OrderSuccessContent() {
             {/* ── Cards ── */}
             <div className={`flex flex-col gap-4 transition-all duration-700 delay-200 ${visible ? "translate-y-0 opacity-100" : "translate-y-6 opacity-0"}`}>
 
-                {/* 1 · Delivery tracker */}
-                <div className="overflow-hidden rounded-3xl border border-stone-100 bg-white shadow-sm">
-                    <div className="border-b border-stone-100 bg-gradient-to-r from-orange-50/70 to-red-50/40 px-5 py-4">
-                        <div className="flex items-center gap-3">
-                            <Bike size={18} className="text-orange-500" />
-                            <div>
-                                <p className="text-[13px] font-black text-stone-900">Your Order is on its way</p>
-                                <p className="text-[11px] text-stone-500">Estimated time: 30–45 minutes</p>
+                {/* 0 · Cancellation — PRIMARY location (Phase 14 §4). Shown
+                    immediately after order placement, before My Orders is
+                    ever needed. Disappears on its own once the order is no
+                    longer in a cancellable status (handled inside the
+                    component) or once orderMeta hasn't loaded yet. */}
+                {!orderMetaLoading && orderMeta && orderMeta.status !== "cancelled" && (
+                    <CustomerCancelControl
+                        orderMongoId={orderMeta._id}
+                        createdAt={orderMeta.createdAt}
+                        status={orderMeta.status}
+                        onCancelled={(cancellation) =>
+                            setOrderMeta((prev) => prev && { ...prev, status: "cancelled", cancellation })
+                        }
+                    />
+                )}
+
+                {orderMeta?.status === "cancelled" && (
+                    <div className="overflow-hidden rounded-fk-lg border border-fk-danger/25 bg-fk-danger/5 shadow-sm">
+                        <div className="px-5 py-5">
+                            <p className="text-base font-black text-fk-text">Order Cancelled</p>
+                            <p className="mt-1 text-sm text-fk-text-secondary">Your order has been cancelled successfully.</p>
+                            {orderMeta.cancellation?.refundStatus === "pending_manual" && (
+                                <p className="mt-2 text-sm font-semibold text-fk-gold">Refund pending manual processing.</p>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* 1 · Delivery tracker — real, status-driven (reuses the same
+                    OrderTimeline Order Detail uses), not a static placeholder.
+                    Shown once orderMeta has loaded and the order isn't
+                    cancelled (cancelled already has its own card above). */}
+                {!orderMetaLoading && orderMeta && orderMeta.status !== "cancelled" && (
+                    <div className="overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm">
+                        <div className="border-b border-fk-border bg-fk-surface-selected px-5 py-4">
+                            <div className="flex items-center gap-3">
+                                <Bike size={18} className="text-[var(--fk-accent)]" />
+                                <div>
+                                    <p className="text-[13px] font-black text-fk-text">Your Order Status</p>
+                                    <p className="text-[11px] text-fk-text-secondary">We&apos;ll keep this updated as your order progresses</p>
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div className="px-5 py-5">
-                        <div className="relative">
-                            {DELIVERY_STEPS.map((step, i) => {
-                                const Icon   = step.icon;
-                                const last   = i === DELIVERY_STEPS.length - 1;
-                                const active = !step.done && (i === 0 || DELIVERY_STEPS[i - 1]?.done);
-                                return (
-                                    <div key={step.label} className="relative flex gap-4">
-                                        {!last && (
-                                            <div className={`absolute left-[18px] top-10 h-full w-0.5 ${step.done ? "bg-emerald-200" : "bg-stone-100"}`} />
-                                        )}
-                                        <div className={`relative z-10 mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 ${
-                                            step.done   ? "border-emerald-300 bg-emerald-50 text-emerald-600"
-                                            : active    ? "border-orange-400 bg-orange-50 text-orange-500 shadow-md shadow-orange-100"
-                                                        : "border-stone-200 bg-stone-50 text-stone-400"
-                                        }`}>
-                                            {step.done
-                                                ? <CheckCircle2 size={16} className="text-emerald-500" strokeWidth={2.5} />
-                                                : <Icon size={15} strokeWidth={1.8} />
-                                            }
-                                            {active && (
-                                                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 animate-pulse rounded-full border-2 border-white bg-orange-500" />
-                                            )}
-                                        </div>
-                                        <div className={`pb-6 ${last ? "pb-0" : ""}`}>
-                                            <p className={`text-[13px] font-black ${
-                                                step.done ? "text-emerald-700" : active ? "text-orange-600" : "text-stone-400"
-                                            }`}>
-                                                {step.label}
-                                                {active && (
-                                                    <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-orange-400">· In progress</span>
-                                                )}
-                                            </p>
-                                            <p className={`text-[11px] ${step.done ? "text-stone-500" : "text-stone-400"}`}>
-                                                {step.sub}
-                                            </p>
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                        <div className="px-5 py-5">
+                            <OrderTimeline
+                                status={orderMeta.status}
+                                orderType={orderMeta.orderType}
+                                createdAt={orderMeta.createdAt}
+                            />
                         </div>
                     </div>
-                </div>
+                )}
+                {orderMetaLoading && (
+                    <div className="flex items-center justify-center gap-2 rounded-fk-lg border border-fk-border bg-fk-surface-elevated py-10 shadow-sm">
+                        <Loader2 size={18} className="animate-spin text-fk-gold" />
+                        <span className="text-[12px] text-fk-text-tertiary">Loading order status…</span>
+                    </div>
+                )}
 
                 {/* 2 · Rider notice */}
-                <div className="flex items-start gap-4 rounded-3xl border border-blue-100 bg-gradient-to-r from-blue-50/80 to-sky-50/60 px-5 py-4">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-100">
+                <div className="flex items-start gap-4 rounded-fk-lg border border-blue-100 bg-gradient-to-r from-blue-50/80 to-sky-50/60 px-5 py-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-fk-md bg-blue-100">
                         <Phone size={17} className="text-blue-600" />
                     </div>
                     <div>
-                        <p className="text-[13px] font-black text-stone-900">Rider will call you directly</p>
-                        <p className="text-[12px] leading-relaxed text-stone-500">
+                        <p className="text-[13px] font-black text-fk-text">Rider will call you directly</p>
+                        <p className="text-[12px] leading-relaxed text-fk-text-secondary">
                             When your order is out for delivery, our rider will call the mobile number you provided. Please keep your phone reachable!
                         </p>
                     </div>
@@ -517,58 +569,43 @@ function OrderSuccessContent() {
                     />
                 )}
 
-                {/* 5 · Info strip */}
-                <div className="grid grid-cols-3 gap-3">
-                    {[
-                        { icon: Clock, label: "Prep time",  val: "10–15 min",  color: "text-amber-600 bg-amber-50 border-amber-100"   },
-                        { icon: Bike,  label: "Delivery",   val: "20–30 min",  color: "text-orange-600 bg-orange-50 border-orange-100" },
-                        { icon: Flame, label: "Made fresh", val: "Every time", color: "text-red-600 bg-red-50 border-red-100"          },
-                    ].map(({ icon: Icon, label, val, color }) => (
-                        <div key={label} className={`flex flex-col items-center rounded-2xl border px-3 py-3.5 text-center ${color}`}>
-                            <Icon size={18} strokeWidth={1.8} />
-                            <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide opacity-70">{label}</p>
-                            <p className="text-[12px] font-black">{val}</p>
-                        </div>
-                    ))}
-                </div>
-
-                {/* 6 · CTAs */}
+                {/* 5 · CTAs */}
                 <div className="flex flex-col gap-3 pt-2 sm:flex-row">
                     <Link href="/menu"
-                        className="group flex flex-1 items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-orange-500 to-red-500 px-6 py-4 text-[14px] font-black text-white shadow-lg shadow-orange-200/60 transition-all hover:brightness-105 active:scale-[0.98]">
+                        className="group flex flex-1 items-center justify-center gap-2.5 rounded-fk-lg bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-6 py-4 text-[14px] font-black text-white shadow-fk-lg transition-all hover:brightness-105 active:scale-[0.98]">
                         <Package size={16} strokeWidth={2.5} />
                         Order More with Us
                         <ArrowRight size={15} className="transition-transform group-hover:translate-x-0.5" />
                     </Link>
                     <Link href="/my-orders"
-                        className="group flex flex-1 items-center justify-center gap-2.5 rounded-2xl border border-stone-200 bg-white px-6 py-4 text-[14px] font-black text-stone-700 shadow-sm transition-all hover:border-orange-300 hover:bg-orange-50 active:scale-[0.98]">
+                        className="group flex flex-1 items-center justify-center gap-2.5 rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-6 py-4 text-[14px] font-black text-fk-text-secondary shadow-sm transition-all hover:border-[var(--fk-accent)]/30 hover:bg-fk-surface-selected active:scale-[0.98]">
                         <ShoppingBag size={16} strokeWidth={2.5} />
                         My Orders
                     </Link>
                 </div>
 
-                {/* 7 · App nudge */}
-                <div className="flex items-center gap-4 rounded-3xl border border-stone-100 bg-white px-5 py-4 shadow-sm">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-500 to-red-500 shadow-md shadow-orange-100">
+                {/* 6 · App nudge */}
+                <div className="flex items-center gap-4 rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-5 py-4 shadow-sm">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-fk-md bg-gradient-to-br from-[var(--fk-accent)] to-[var(--fk-gold)] shadow-fk-sm">
                         <Smartphone size={17} className="text-white" />
                     </div>
                     <div>
-                        <p className="text-[13px] font-black text-stone-900">Coming soon: FoodKnock App</p>
-                        <p className="text-[11px] text-stone-500">
+                        <p className="text-[13px] font-black text-fk-text">Coming soon: FoodKnock App</p>
+                        <p className="text-[11px] text-fk-text-secondary">
                             Real-time tracking · faster checkout · app-only deals.{" "}
-                            <span className="font-bold text-orange-500">iOS & Android.</span>
+                            <span className="font-bold text-[var(--fk-accent)]">iOS & Android.</span>
                         </p>
                     </div>
                 </div>
 
-                {/* 8 · Brand note */}
+                {/* 7 · Brand note */}
                 <div className="pb-4 pt-2 text-center">
-                    <p className="text-[12px] font-bold text-stone-400">
+                    <p className="text-[12px] font-bold text-fk-text-tertiary">
                         Thank you for choosing{" "}
-                        <span className="font-black text-orange-500">FoodKnock</span> 🧡
+                        <span className="font-black text-[var(--fk-accent)]">FoodKnock</span> 🧡
                     </p>
-                    <p className="mt-0.5 text-[11px] italic text-stone-300">
-                        "When Hunger Knocks, FoodKnock Delivers."
+                    <p className="mt-0.5 text-[11px] italic text-fk-text-tertiary">
+                        &quot;When Hunger Knocks, FoodKnock Delivers.&quot;
                     </p>
                 </div>
             </div>
@@ -579,22 +616,21 @@ function OrderSuccessContent() {
 // ── Page shell ────────────────────────────────────────────────────────────────
 export default function OrderSuccessPage() {
     return (
-        <>
-            <Navbar />
-            <main className="min-h-screen bg-[#FAFAF9]">
+        <CustomerShell>
+            <main className="min-h-screen bg-fk-bg">
                 <div
                     className="pointer-events-none absolute left-0 right-0 top-0 h-64 opacity-30"
-                    style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, #fed7aa, transparent)" }}
+                    style={{ background: "radial-gradient(ellipse 80% 60% at 50% 0%, var(--fk-gold-soft), transparent)" }}
                 />
                 <Suspense fallback={
                     <div className="flex min-h-[60vh] items-center justify-center">
-                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-orange-200 border-t-orange-500" />
+                        <div className="h-10 w-10 animate-spin rounded-full border-4 border-fk-gold-soft border-t-[var(--fk-accent)]" />
                     </div>
                 }>
                     <OrderSuccessContent />
                 </Suspense>
             </main>
             <Footer />
-        </>
+        </CustomerShell>
     );
 }

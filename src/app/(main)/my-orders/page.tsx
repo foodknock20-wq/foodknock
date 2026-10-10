@@ -3,22 +3,47 @@ export const dynamic = "force-dynamic";
 
 // src/app/(main)/my-orders/page.tsx
 // Premium authenticated "My Orders" — FoodKnock
+//
+// FoodKnock Phase 5 — Orders 2.0. Token restyle + two real-data fixes
+// found during the audit (both disclosed, both additive):
+//   1. The "Rewards Earned" stat used to be a CLIENT-SIDE GUESS
+//      (`Math.floor(sum(totalAmount)/10)` over every order in this list,
+//      including cancelled ones and orders below the ₹189 points
+//      threshold) labeled as if it were the customer's real loyalty
+//      balance. It never matched the actual balance (redemptions,
+//      referral bonuses, and the MIN_ORDER_FOR_POINTS exclusion all make
+//      the two numbers diverge in production). Replaced with the real,
+//      authoritative balance from GET /api/loyalty — the same endpoint
+//      Checkout/the Loyalty page already use — fetched once alongside
+//      the order list.
+//   2. "Active" order counting/filtering previously only excluded
+//      `delivered`, which meant a `cancelled` order was miscounted as
+//      "active" (and could appear under the Active filter). Fixed to
+//      exclude both terminal statuses — no new status model, just using
+//      the existing one correctly.
+// New, additive: an ActiveOrderSpotlight surfaces the single most recent
+// non-terminal order prominently, when one exists — pure presentation
+// over already-fetched data (src/components/orders/ActiveOrderSpotlight.tsx).
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
     Package, ArrowRight, Clock, ChefHat, Truck, PartyPopper,
-    Store, Loader2, ShoppingBag, ChevronRight, Calendar,
+    Store, ChevronRight, Calendar,
     ReceiptText, UtensilsCrossed, Search, X, ChevronLeft,
-    Sparkles, TrendingUp,
+    Sparkles, TrendingUp, XCircle,
 } from "lucide-react";
-import Navbar from "@/components/shared/Navbar";
 import Footer from "@/components/shared/Footer";
+import ActiveOrderSpotlight from "@/components/orders/ActiveOrderSpotlight";
+import ReorderButton from "@/components/orders/ReorderButton";
+import RecommendationRail from "@/components/products/RecommendationRail";
+import { useFeaturedPicks } from "@/hooks/useFeaturedPicks";
 
 const ORDERS_PER_PAGE = 6;
+const NON_TERMINAL_STATUSES = ["received", "preparing", "out_for_delivery"];
 
-type OrderItem = { name: string; quantity: number; price: number; image?: string };
+type OrderItem = { name: string; quantity: number; price: number; image?: string; productId?: string | null };
 type Order = {
     _id: string; orderId: string; customerName: string; phone: string;
     address: string; landmark?: string; orderType: "delivery" | "pickup";
@@ -39,18 +64,23 @@ const STATUS_CONFIG: Record<string, {
     },
     preparing: {
         label: "Preparing", icon: ChefHat,
-        bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500",
-        headerBg: "bg-amber-50", headerBorder: "border-b border-amber-100",
+        bg: "bg-fk-gold-soft", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500",
+        headerBg: "bg-fk-gold-soft", headerBorder: "border-b border-amber-100",
     },
     out_for_delivery: {
         label: "Out for Delivery", icon: Truck,
-        bg: "bg-orange-50", text: "text-orange-700", border: "border-orange-200", dot: "bg-orange-500",
-        headerBg: "bg-orange-50", headerBorder: "border-b border-orange-100",
+        bg: "bg-fk-surface-selected", text: "text-[var(--fk-accent)]", border: "border-fk-border", dot: "bg-[var(--fk-accent)]",
+        headerBg: "bg-fk-surface-selected", headerBorder: "border-b border-fk-border",
     },
     delivered: {
         label: "Delivered", icon: PartyPopper,
-        bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500",
-        headerBg: "bg-emerald-50", headerBorder: "border-b border-emerald-100",
+        bg: "bg-fk-success/10", text: "text-fk-success", border: "border-fk-success/25", dot: "bg-fk-success",
+        headerBg: "bg-fk-success/10", headerBorder: "border-b border-fk-success/15",
+    },
+    cancelled: {
+        label: "Cancelled", icon: XCircle,
+        bg: "bg-fk-danger/10", text: "text-fk-danger", border: "border-fk-danger/25", dot: "bg-fk-danger",
+        headerBg: "bg-fk-danger/10", headerBorder: "border-b border-fk-danger/15",
     },
 };
 
@@ -59,11 +89,11 @@ const fmtTime = (s: string) => new Date(s).toLocaleTimeString("en-IN", { hour: "
 const fmtRs = (n: number) => "₹" + n.toLocaleString("en-IN");
 
 function StatusBadge({ status }: { status: string }) {
-    const c = STATUS_CONFIG[status] ?? { label: status, icon: Package, bg: "bg-stone-50", text: "text-stone-600", border: "border-stone-200", dot: "bg-stone-400" };
+    const c = STATUS_CONFIG[status] ?? { label: status, icon: Package, bg: "bg-fk-surface-interactive", text: "text-fk-text-secondary", border: "border-fk-border", dot: "bg-fk-text-tertiary" };
     const Icon = c.icon;
     return (
-        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${c.bg} ${c.text} ${c.border}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${c.dot} ${status === "out_for_delivery" || status === "preparing" ? "animate-pulse" : ""}`} />
+        <span className={`inline-flex items-center gap-1.5 rounded-fk-pill border px-2.5 py-1 text-[11px] font-bold ${c.bg} ${c.text} ${c.border}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${c.dot} ${status === "out_for_delivery" || status === "preparing" ? "animate-pulse motion-reduce:animate-none" : ""}`} />
             <Icon size={11} strokeWidth={2.5} />
             {c.label}
         </span>
@@ -72,18 +102,18 @@ function StatusBadge({ status }: { status: string }) {
 
 function SkeletonCard() {
     return (
-        <div className="flex flex-col overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm animate-pulse">
-            <div className="h-12 bg-gradient-to-r from-stone-100 to-amber-50/40" />
+        <div className="flex flex-col overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm animate-pulse motion-reduce:animate-none">
+            <div className="h-12 bg-fk-surface-interactive" />
             <div className="flex flex-col gap-3 p-5">
                 <div className="flex gap-2">
-                    <div className="h-3.5 w-28 rounded-full bg-stone-100" />
-                    <div className="h-3.5 w-14 rounded-full bg-stone-100" />
+                    <div className="h-3.5 w-28 rounded-fk-pill bg-fk-surface-interactive" />
+                    <div className="h-3.5 w-14 rounded-fk-pill bg-fk-surface-interactive" />
                 </div>
-                <div className="h-4 w-full rounded-full bg-stone-100" />
-                <div className="h-4 w-3/4 rounded-full bg-stone-100" />
-                <div className="mt-2 flex items-center justify-between border-t border-stone-50 pt-3">
-                    <div className="h-5 w-16 rounded-full bg-stone-100" />
-                    <div className="h-8 w-28 rounded-full bg-orange-100/70" />
+                <div className="h-4 w-full rounded-fk-pill bg-fk-surface-interactive" />
+                <div className="h-4 w-3/4 rounded-fk-pill bg-fk-surface-interactive" />
+                <div className="mt-2 flex items-center justify-between border-t border-fk-border pt-3">
+                    <div className="h-5 w-16 rounded-fk-pill bg-fk-surface-interactive" />
+                    <div className="h-8 w-28 rounded-fk-pill bg-fk-surface-selected" />
                 </div>
             </div>
         </div>
@@ -95,29 +125,31 @@ function OrderCard({ order, index }: { order: Order; index: number }) {
     const previewItems = order.items.slice(0, 2);
     const remaining = order.items.length - 2;
     const cfg = STATUS_CONFIG[order.status];
+    const isDelivered = order.status === "delivered";
 
-    return (
-        <Link
-            href={`/my-orders/${order.orderId}`}
-            className="group flex flex-col overflow-hidden rounded-3xl border border-amber-100 bg-white shadow-sm transition-all duration-300 hover:border-orange-200 hover:shadow-xl hover:shadow-orange-100/60 hover:-translate-y-1"
-            style={{ animationDelay: `${index * 60}ms` }}
-        >
-            <div className={`flex items-center justify-between px-5 py-3 ${cfg?.headerBg ?? "bg-stone-50"} ${cfg?.headerBorder ?? "border-b border-stone-100"}`}>
+    // Orders 2.0 — delivered cards get a compact action row (View Order +
+    // Reorder) BELOW the main clickable area, not nested inside it (a
+    // <button> inside an <a> is invalid HTML and breaks click targeting).
+    // Non-delivered orders keep the original single full-card link exactly
+    // as before — no restructuring needed where there's nothing to reorder.
+    const cardBody = (
+        <>
+            <div className={`flex items-center justify-between px-5 py-3 ${cfg?.headerBg ?? "bg-fk-surface-interactive"} ${cfg?.headerBorder ?? "border-b border-fk-border"}`}>
                 <StatusBadge status={order.status} />
-                <span className="font-mono text-[10px] tracking-wider text-stone-400">
+                <span className="font-mono text-[10px] tracking-wider text-fk-text-tertiary">
                     #{order.orderId.slice(-10)}
                 </span>
             </div>
 
             <div className="flex flex-1 flex-col p-5">
                 <div className="mb-3.5 flex flex-wrap items-center gap-2">
-                    <span className="flex items-center gap-1.5 text-[11px] text-stone-400">
+                    <span className="flex items-center gap-1.5 text-[11px] text-fk-text-tertiary">
                         <Calendar size={10} strokeWidth={2.5} />
                         {fmtDate(order.createdAt)} · {fmtTime(order.createdAt)}
                     </span>
-                    <span className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold ${order.orderType === "delivery"
-                        ? "border-amber-200 bg-amber-50 text-amber-600"
-                        : "border-stone-200 bg-stone-50 text-stone-600"
+                    <span className={`flex items-center gap-1 rounded-fk-pill border px-2 py-0.5 text-[10px] font-bold ${order.orderType === "delivery"
+                        ? "border-fk-border bg-fk-gold-soft text-amber-700"
+                        : "border-fk-border bg-fk-surface-interactive text-fk-text-secondary"
                         }`}>
                         {order.orderType === "delivery"
                             ? <><Truck size={8} strokeWidth={2.5} /> Delivery</>
@@ -128,66 +160,221 @@ function OrderCard({ order, index }: { order: Order; index: number }) {
                 <div className="mb-4 space-y-2">
                     {previewItems.map((item, i) => (
                         <div key={i} className="flex items-center gap-2.5">
-                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-amber-100 to-orange-100 text-[11px] font-black text-amber-700">
+                            <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-fk-sm bg-fk-gold-soft text-[11px] font-black text-amber-700">
                                 {item.quantity}
                             </div>
-                            <span className="flex-1 truncate text-[13px] font-medium text-stone-700">{item.name}</span>
-                            <span className="shrink-0 text-[11px] font-semibold text-stone-500">
+                            <span className="flex-1 truncate text-[13px] font-medium text-fk-text">{item.name}</span>
+                            <span className="shrink-0 text-[11px] font-semibold text-fk-text-secondary">
                                 {fmtRs(item.price * item.quantity)}
                             </span>
                         </div>
                     ))}
                     {remaining > 0 && (
-                        <p className="pl-8 text-[11px] text-stone-400">+{remaining} more item{remaining > 1 ? "s" : ""}</p>
+                        <p className="pl-8 text-[11px] text-fk-text-tertiary">+{remaining} more item{remaining > 1 ? "s" : ""}</p>
                     )}
                 </div>
 
-                <div className="mt-auto flex items-center justify-between border-t border-amber-50 pt-3.5">
+                <div className="mt-auto flex items-center justify-between border-t border-fk-border pt-3.5">
                     <div>
-                        <p className="text-[10px] font-semibold uppercase tracking-widest text-stone-400">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-fk-text-tertiary">
                             {itemCount} item{itemCount !== 1 ? "s" : ""}
                         </p>
-                        <p className="text-[17px] font-black leading-tight text-orange-600">
+                        <p className="text-[17px] font-black leading-tight text-[var(--fk-accent)]">
                             {fmtRs(order.totalAmount)}
                         </p>
                     </div>
-                    <div className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-4 py-2.5 text-[11px] font-black text-white shadow-md shadow-orange-200 transition-all duration-200 group-hover:brightness-110">
-                        View Details
-                        <ChevronRight size={12} strokeWidth={3} className="transition-transform duration-200 group-hover:translate-x-0.5" />
-                    </div>
+                    {!isDelivered && (
+                        <div className="flex items-center gap-1.5 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-4 py-2.5 text-[11px] font-black text-white shadow-fk-sm transition-all duration-200 group-hover:brightness-110">
+                            View Details
+                            <ChevronRight size={12} strokeWidth={3} className="transition-transform duration-200 group-hover:translate-x-0.5" />
+                        </div>
+                    )}
                 </div>
             </div>
-        </Link>
+        </>
+    );
+
+    if (!isDelivered) {
+        return (
+            <Link
+                href={`/my-orders/${order.orderId}`}
+                className="group flex flex-col overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm transition-all duration-300 hover:border-[var(--fk-accent)]/30 hover:shadow-fk-lg hover:-translate-y-1"
+                style={{ animationDelay: `${index * 60}ms` }}
+            >
+                {cardBody}
+            </Link>
+        );
+    }
+
+    return (
+        <div
+            className="group flex flex-col overflow-hidden rounded-fk-lg border border-fk-border bg-fk-surface-elevated shadow-sm transition-all duration-300 hover:border-[var(--fk-accent)]/30 hover:shadow-fk-lg"
+            style={{ animationDelay: `${index * 60}ms` }}
+        >
+            <Link href={`/my-orders/${order.orderId}`} className="flex flex-1 flex-col">
+                {cardBody}
+            </Link>
+            <div className="flex items-center justify-between gap-2 border-t border-fk-border bg-fk-surface-selected px-5 py-3">
+                <Link
+                    href={`/my-orders/${order.orderId}`}
+                    className="flex items-center gap-1 text-[12px] font-black text-fk-text-secondary transition-colors hover:text-fk-text"
+                >
+                    View Order <ChevronRight size={12} strokeWidth={3} />
+                </Link>
+                <ReorderButton
+                    items={order.items.map((i) => ({ productId: i.productId ?? null, name: i.name, quantity: i.quantity, price: i.price }))}
+                    status={order.status}
+                />
+            </div>
+        </div>
     );
 }
 
-function EmptyState({ filter, onClear }: { filter: FilterTab; onClear: () => void }) {
-    const MAP: Record<FilterTab, { emoji: string; title: string; sub: string }> = {
-        all: { emoji: "🛍️", title: "No orders yet", sub: "Your order history will show up here. Start with something delicious!" },
+// ─── "All, zero orders ever" hero — order-journey/receipt motif, deliberately
+// distinct from Cart's shopping-bag badge (different icon set, different
+// layout shape, different copy) so the two empty states don't read as the
+// same component with swapped text. Illustrative only — explicitly never
+// implies an order already exists/is being prepared/is on the way (it's a
+// static, non-interactive diagram of what WILL happen after the first order).
+function FirstOrderHero() {
+    // Mobile-responsiveness fix: labels shortened to one short word each
+    // (was "Order placed"/"Prepared fresh"/"On its way"/"Delivered" —
+    // "Prepared fresh" alone is wider than the ~56–60px a 4-column strip
+    // actually has to work with below ~380px viewport width). A flex child
+    // with text content and no `min-width:0` refuses to shrink below that
+    // text's own content width (the actual root cause, not just a font-size
+    // issue) — `min-w-0` on each step below is what actually fixes the
+    // overflow; shorter labels just make the result look intentional
+    // rather than merely "not broken."
+    const steps = [
+        { icon: ReceiptText, label: "Placed" },
+        { icon: ChefHat, label: "Cooking" },
+        { icon: Truck, label: "On the way" },
+        { icon: PartyPopper, label: "Delivered" },
+    ];
+    return (
+        <div className="mx-auto flex w-full max-w-xs flex-col items-center">
+            <div className="relative flex h-24 w-24 items-center justify-center rounded-fk-lg border border-fk-border bg-gradient-to-br from-fk-gold-soft to-fk-surface-elevated shadow-fk-md sm:h-28 sm:w-28">
+                <ReceiptText size={40} className="text-[var(--fk-accent)]" strokeWidth={1.5} />
+            </div>
+            {/* Illustrative-only journey strip — a static diagram, not a live
+                tracker. Dotted connector + four fixed steps, same visual
+                language the real order-detail timeline uses elsewhere in
+                this app, but unmistakably inert here (no active/highlighted
+                step, no animation, no dates).
+
+                `min-w-0` on each step is the actual fix: without it, a flex
+                child containing text defaults to `min-width: auto` (its
+                content's own width), so four steps with real text labels
+                would force this row — and therefore its parent hero card —
+                wider than the viewport on narrow phones, instead of
+                shrinking to fit. `min-w-0` lets each step shrink below its
+                label's natural width and wrap/truncate instead. */}
+            <div className="mt-5 flex w-full items-start justify-between gap-1">
+                {steps.map(({ icon: Icon, label }, i) => (
+                    <div key={label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5 text-center">
+                        <div className="flex w-full items-center">
+                            {i > 0 && <span className="h-px min-w-[6px] flex-1 border-t border-dashed border-fk-border" aria-hidden="true" />}
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-fk-border bg-fk-surface-elevated">
+                                <Icon size={13} className="text-fk-text-tertiary" strokeWidth={2} />
+                            </div>
+                            {i < steps.length - 1 && <span className="h-px min-w-[6px] flex-1 border-t border-dashed border-fk-border" aria-hidden="true" />}
+                        </div>
+                        <p className="w-full truncate text-[9.5px] font-bold leading-tight text-fk-text-tertiary">{label}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function OrdersEmptyState({ filter, onClear }: { filter: FilterTab; onClear: () => void }) {
+    const { products: featured, loading: featuredLoading } = useFeaturedPicks();
+
+    const MAP: Record<Exclude<FilterTab, "all">, { emoji: string; title: string; sub: string }> = {
         active: { emoji: "⏳", title: "No active orders", sub: "All quiet for now. Fancy something fresh from the kitchen?" },
         delivered: { emoji: "✅", title: "No delivered orders yet", sub: "Completed orders land here once delivered." },
         received: { emoji: "📬", title: "No orders received", sub: "Orders confirmed by the kitchen appear here." },
         preparing: { emoji: "👨‍🍳", title: "Nothing being prepared", sub: "Orders being cooked will show up here in real-time." },
         out_for_delivery: { emoji: "🛵", title: "Nothing out for delivery", sub: "Orders on their way to you will appear here." },
     };
+
+    // The genuine "never ordered" state — a full, composed discovery
+    // experience, distinct from the filtered-to-zero states below.
+    if (filter === "all") {
+        return (
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.1fr_1fr] lg:items-start lg:gap-8">
+                {/* px-4 (not px-6) at the base breakpoint — same reasoning
+                    as the Cart empty-state's matching hero card: the
+                    page's own container padding plus a 24px/side card
+                    padding left too little room for FirstOrderHero's
+                    4-column journey strip on the smallest phones. */}
+                <div className="flex flex-col items-center rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-4 py-8 text-center shadow-sm sm:px-6 sm:py-10">
+                    <FirstOrderHero />
+                    <h2 className="mt-6 text-2xl font-black leading-tight text-fk-text sm:text-[26px]">
+                        Your first delicious<br className="sm:hidden" /> order starts here.
+                    </h2>
+                    <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-fk-text-secondary">
+                        Once you place an order, you&apos;ll be able to track it live, reorder your favourites, and see your complete history right here.
+                    </p>
+                    <Link
+                        href="/menu"
+                        className="group mt-6 inline-flex w-full items-center justify-center gap-2 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-8 py-3.5 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110 active:scale-95 sm:w-auto"
+                    >
+                        <UtensilsCrossed size={15} strokeWidth={2.5} /> Order Now
+                        <ArrowRight size={15} className="transition-transform group-hover:translate-x-1" />
+                    </Link>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                    <div className="rounded-fk-lg border border-fk-border bg-fk-surface-elevated p-4 shadow-sm">
+                        <p className="text-[13px] font-black tracking-tight text-fk-text">What should you order first?</p>
+                        <p className="mt-0.5 text-[11.5px] text-fk-text-tertiary">Popular picks from the FoodKnock menu</p>
+                    </div>
+                    {(featuredLoading || featured.length > 0) && (
+                        <RecommendationRail title="Featured on FoodKnock" products={featured} loading={featuredLoading} />
+                    )}
+                    <Link
+                        href="/menu"
+                        className="flex items-center justify-between gap-3 rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-4 py-3.5 text-left shadow-sm transition-all hover:border-[var(--fk-accent)]/40"
+                    >
+                        {/* min-w-0 is required here: this div is a flex
+                            child containing text, so without it the row
+                            refuses to shrink below the text's own width on
+                            narrow screens, pushing the chevron off the
+                            edge instead of truncating gracefully. */}
+                        <div className="min-w-0">
+                            <p className="truncate text-[13px] font-bold text-fk-text">Browse the full menu</p>
+                            <p className="truncate text-[11px] text-fk-text-tertiary">Burgers, pizza, momos, shakes &amp; more</p>
+                        </div>
+                        <ChevronRight size={16} className="shrink-0 text-[var(--fk-accent)]" />
+                    </Link>
+                </div>
+            </div>
+        );
+    }
+
+    // Filtered-tab-to-zero states (e.g. "Active" with none in flight) —
+    // intentionally lighter-weight than the "all" case above: the customer
+    // already has order history, just not in this particular filter, so a
+    // compact, functional empty state is the correct amount of ceremony
+    // here, not a second full discovery landing.
     const { emoji, title, sub } = MAP[filter];
     return (
-        <div className="flex flex-col items-center rounded-3xl border border-amber-100 bg-white px-8 py-20 text-center shadow-sm">
-            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-50 to-orange-100 text-4xl shadow-inner">{emoji}</div>
-            <h3 className="text-xl font-black text-stone-900">{title}</h3>
-            <p className="mt-2 max-w-xs text-sm leading-relaxed text-stone-500">{sub}</p>
+        <div className="flex flex-col items-center rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-8 py-20 text-center shadow-sm">
+            <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-fk-lg bg-fk-gold-soft text-4xl shadow-inner">{emoji}</div>
+            <h3 className="font-display text-xl font-black text-fk-text">{title}</h3>
+            <p className="mt-2 max-w-xs text-sm leading-relaxed text-fk-text-secondary">{sub}</p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-                {filter !== "all" && (
-                    <button
-                        onClick={onClear}
-                        className="flex items-center gap-2 rounded-full border border-stone-200 bg-white px-5 py-2.5 text-sm font-bold text-stone-600 shadow-sm transition-all hover:bg-stone-50"
-                    >
-                        <X size={13} /> Show All Orders
-                    </button>
-                )}
+                <button
+                    onClick={onClear}
+                    className="flex items-center gap-2 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-5 py-2.5 text-sm font-bold text-fk-text-secondary shadow-sm transition-all hover:bg-fk-surface-interactive"
+                >
+                    <X size={13} /> Show All Orders
+                </button>
                 <Link
                     href="/menu"
-                    className="flex items-center gap-2 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-5 py-2.5 text-sm font-black text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 active:scale-95"
+                    className="flex items-center gap-2 rounded-fk-pill bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] px-5 py-2.5 text-sm font-black text-white shadow-fk-md transition-all hover:brightness-110 active:scale-95"
                 >
                     <UtensilsCrossed size={13} strokeWidth={2.5} /> Browse Menu
                 </Link>
@@ -209,20 +396,20 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
             <button
                 onClick={() => onChange(current - 1)}
                 disabled={current === 1}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-amber-200 bg-white text-stone-500 shadow-sm transition-all hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex h-10 w-10 items-center justify-center rounded-fk-md border border-fk-border bg-fk-surface-elevated text-fk-text-secondary shadow-sm transition-all hover:border-[var(--fk-accent)]/30 hover:bg-fk-surface-selected disabled:cursor-not-allowed disabled:opacity-30"
             >
                 <ChevronLeft size={16} strokeWidth={2.5} />
             </button>
             {getVisible().map((p, i) =>
                 p === "…" ? (
-                    <span key={`e${i}`} className="flex h-10 w-10 items-center justify-center text-sm text-stone-400">···</span>
+                    <span key={`e${i}`} className="flex h-10 w-10 items-center justify-center text-sm text-fk-text-tertiary">···</span>
                 ) : (
                     <button
                         key={p}
                         onClick={() => onChange(p as number)}
-                        className={`flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold transition-all ${current === p
-                            ? "scale-105 bg-gradient-to-br from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
-                            : "border border-amber-100 bg-white text-stone-600 shadow-sm hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600"
+                        className={`flex h-10 w-10 items-center justify-center rounded-fk-md text-sm font-bold transition-all ${current === p
+                            ? "scale-105 bg-gradient-to-br from-[var(--fk-accent)] to-[var(--fk-gold)] text-white shadow-fk-md"
+                            : "border border-fk-border bg-fk-surface-elevated text-fk-text-secondary shadow-sm hover:border-[var(--fk-accent)]/30 hover:bg-fk-surface-selected"
                             }`}
                     >
                         {p}
@@ -232,11 +419,11 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
             <button
                 onClick={() => onChange(current + 1)}
                 disabled={current === total}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-amber-200 bg-white text-stone-500 shadow-sm transition-all hover:border-orange-300 hover:bg-orange-50 hover:text-orange-600 disabled:cursor-not-allowed disabled:opacity-30"
+                className="flex h-10 w-10 items-center justify-center rounded-fk-md border border-fk-border bg-fk-surface-elevated text-fk-text-secondary shadow-sm transition-all hover:border-[var(--fk-accent)]/30 hover:bg-fk-surface-selected disabled:cursor-not-allowed disabled:opacity-30"
             >
                 <ChevronRight size={16} strokeWidth={2.5} />
             </button>
-            <span className="ml-1.5 text-xs text-stone-400">Page {current} of {total}</span>
+            <span className="ml-1.5 text-xs text-fk-text-tertiary">Page {current} of {total}</span>
         </div>
     );
 }
@@ -261,13 +448,18 @@ export default function MyOrdersPage() {
     const [page, setPage] = useState(1);
     const gridRef = useRef<HTMLDivElement>(null);
 
+    // Real loyalty balance — same /api/loyalty source Checkout/the Loyalty
+    // page use. Replaces a previous client-side guess derived from this
+    // page's own order totals (see file header).
+    const [loyaltyBalance, setLoyaltyBalance] = useState<number | null>(null);
+
     useEffect(() => {
         async function load() {
             try {
                 const meRes = await fetch("/api/auth/me", { credentials: "include" });
-                if (!meRes.ok) { router.replace("/auth?redirect=/my-orders"); return; }
+                if (!meRes.ok) { router.replace("/auth?mode=login&redirect=/my-orders"); return; }
                 const meData = await meRes.json();
-                if (!meData.success) { router.replace("/auth?redirect=/my-orders"); return; }
+                if (!meData.success) { router.replace("/auth?mode=login&redirect=/my-orders"); return; }
                 const ordRes = await fetch("/api/orders/my", { credentials: "include" });
                 const ordData = await ordRes.json();
                 if (!ordRes.ok || !ordData.success) { setError("Failed to load your orders. Please try again."); return; }
@@ -279,15 +471,24 @@ export default function MyOrdersPage() {
             }
         }
         load();
+
+        fetch("/api/loyalty", { credentials: "include" })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (d?.success) setLoyaltyBalance(Math.max(0, Number(d.balance) || 0)); })
+            .catch(() => {}); // fine to omit the chip if this fails — orders themselves still load
     }, [router]);
 
-    const activeOrders = useMemo(() => orders.filter((o) => o.status !== "delivered"), [orders]);
-
-    // ── Rewards: 1 pt per ₹10 spent — never format as currency ──
-    const rewardPoints = useMemo(
-        () => Math.floor(orders.reduce((s, o) => s + o.totalAmount, 0) / 10),
+    // Non-terminal = currently in motion. `cancelled` is terminal, same as
+    // `delivered` — previously only `delivered` was excluded here, which
+    // miscounted/misfiltered cancelled orders as "active" (fixed).
+    const activeOrders = useMemo(
+        () => orders.filter((o) => NON_TERMINAL_STATUSES.includes(o.status)),
         [orders]
     );
+
+    // Most recent non-terminal order — orders are already sorted
+    // newest-first by the API. Null when nothing is currently in motion.
+    const spotlightOrder = activeOrders[0] ?? null;
 
     const mostOrdered = useMemo(() => {
         const freq: Record<string, number> = {};
@@ -297,16 +498,16 @@ export default function MyOrdersPage() {
 
     const tabCounts = useMemo<Record<FilterTab, number>>(() => ({
         all: orders.length,
-        active: orders.filter((o) => o.status !== "delivered").length,
+        active: activeOrders.length,
         received: orders.filter((o) => o.status === "received").length,
         preparing: orders.filter((o) => o.status === "preparing").length,
         out_for_delivery: orders.filter((o) => o.status === "out_for_delivery").length,
         delivered: orders.filter((o) => o.status === "delivered").length,
-    }), [orders]);
+    }), [orders, activeOrders]);
 
     const filteredOrders = useMemo(() => {
         let base = orders;
-        if (filter === "active") base = base.filter((o) => o.status !== "delivered");
+        if (filter === "active") base = base.filter((o) => NON_TERMINAL_STATUSES.includes(o.status));
         else if (filter !== "all") base = base.filter((o) => o.status === filter);
         if (search.trim()) {
             const q = search.trim().toLowerCase().replace(/^#/, "");
@@ -331,76 +532,74 @@ export default function MyOrdersPage() {
 
     return (
         <>
-            <Navbar />
-            <main className="min-h-screen bg-[#FFFBF5]">
+            <main className="min-h-screen bg-fk-bg">
 
                 {/* ── Hero ── */}
-                <section className="relative overflow-hidden border-b border-amber-100">
-                    <div className="absolute inset-0 bg-gradient-to-br from-amber-50/90 via-[#FFFBF5] to-orange-50/70" />
+                <section className="relative overflow-hidden border-b border-fk-border">
+                    <div className="absolute inset-0 bg-gradient-to-br from-fk-gold-soft/70 via-fk-bg to-fk-surface-selected/60" />
                     <div
                         className="pointer-events-none absolute inset-0 opacity-[0.022]"
                         style={{ backgroundImage: "radial-gradient(circle, #92400e 1px, transparent 1px)", backgroundSize: "28px 28px" }}
                     />
-                    <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full opacity-25 blur-3xl" style={{ background: "radial-gradient(ellipse, #fb923c, transparent 70%)" }} />
-                    <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, #fbbf24, transparent 70%)" }} />
+                    <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full opacity-25 blur-3xl" style={{ background: "radial-gradient(ellipse, var(--fk-accent), transparent 70%)" }} />
+                    <div className="pointer-events-none absolute -left-16 bottom-0 h-48 w-48 rounded-full opacity-15 blur-3xl" style={{ background: "radial-gradient(ellipse, var(--fk-gold), transparent 70%)" }} />
 
                     <div className="relative mx-auto max-w-7xl px-4 pb-8 pt-10 md:px-8 md:pb-10 md:pt-14">
                         <div className="mb-4 flex items-center gap-3.5">
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-lg shadow-amber-200/70">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-fk-lg bg-gradient-to-br from-[var(--fk-gold)] to-[var(--fk-accent)] shadow-fk-md">
                                 <Package size={22} className="text-white" strokeWidth={2} />
                             </div>
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-orange-500">FoodKnock</p>
-                                <h1 className="text-2xl font-black leading-tight text-stone-900 md:text-3xl">My Orders</h1>
+                                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[var(--fk-accent)]">FoodKnock</p>
+                                <h1 className="font-display text-2xl font-black leading-tight text-fk-text md:text-3xl">My Orders</h1>
                             </div>
                         </div>
-                        <p className="mb-6 max-w-md text-sm leading-relaxed text-stone-500">
+                        <p className="mb-6 max-w-md text-sm leading-relaxed text-fk-text-secondary">
                             Every order in one place — track live status, view full details, and reorder your favourites in seconds.
                         </p>
 
                         {!loading && orders.length > 0 && (
-                            <div className="flex flex-wrap gap-2.5">
-                                {/* Total Orders */}
-                                <div className="flex items-center gap-2 rounded-2xl border border-amber-200 bg-white px-4 py-2.5 shadow-sm">
-                                    <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-amber-100">
+                            <div className="mb-6 flex flex-wrap gap-2.5">
+                                <div className="flex items-center gap-2 rounded-fk-lg border border-fk-border bg-fk-surface-elevated px-4 py-2.5 shadow-sm">
+                                    <div className="flex h-7 w-7 items-center justify-center rounded-fk-sm bg-fk-gold-soft">
                                         <ReceiptText size={13} className="text-amber-600" />
                                     </div>
                                     <div>
-                                        <p className="text-[9px] font-black uppercase tracking-widest leading-none text-stone-400">Total</p>
-                                        <p className="text-sm font-black text-stone-900">{orders.length} orders</p>
+                                        <p className="text-[9px] font-black uppercase tracking-widest leading-none text-fk-text-tertiary">Total</p>
+                                        <p className="text-sm font-black text-fk-text">{orders.length} orders</p>
                                     </div>
                                 </div>
 
-                                {/* Active Orders */}
                                 {activeOrders.length > 0 && (
-                                    <div className="flex items-center gap-2 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-2.5 shadow-sm">
-                                        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-orange-100">
-                                            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-orange-500" />
+                                    <div className="flex items-center gap-2 rounded-fk-lg border border-[var(--fk-accent)]/25 bg-fk-surface-selected px-4 py-2.5 shadow-sm">
+                                        <div className="flex h-7 w-7 items-center justify-center rounded-fk-sm bg-fk-surface-elevated">
+                                            <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[var(--fk-accent)] motion-reduce:animate-none" />
                                         </div>
                                         <div>
-                                            <p className="text-[9px] font-black uppercase tracking-widest leading-none text-orange-400">Active</p>
-                                            <p className="text-sm font-black text-orange-700">{activeOrders.length} live</p>
+                                            <p className="text-[9px] font-black uppercase tracking-widest leading-none text-[var(--fk-accent)]">Active</p>
+                                            <p className="text-sm font-black text-[var(--fk-accent)]">{activeOrders.length} live</p>
                                         </div>
                                     </div>
                                 )}
 
-                                {/* ── Rewards Earned — never show currency, always pts ── */}
-                                <div className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 shadow-sm">
-                                    <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-emerald-100">
-                                        <Sparkles size={13} className="text-emerald-600" />
-                                    </div>
-                                    <div>
-                                        <p className="text-[9px] font-black uppercase tracking-widest leading-none text-emerald-500">Rewards Earned</p>
-                                        <p className="text-sm font-black text-emerald-700">
-                                            {rewardPoints.toLocaleString("en-IN")} pts
-                                        </p>
-                                    </div>
-                                </div>
+                                {/* Real loyalty balance — only shown once fetched; never a guessed number. */}
+                                {loyaltyBalance !== null && (
+                                    <Link href="/loyalty" className="flex items-center gap-2 rounded-fk-lg border border-fk-success/25 bg-fk-success/10 px-4 py-2.5 shadow-sm transition-all hover:brightness-105">
+                                        <div className="flex h-7 w-7 items-center justify-center rounded-fk-sm bg-fk-surface-elevated">
+                                            <Sparkles size={13} className="text-fk-success" />
+                                        </div>
+                                        <div>
+                                            <p className="text-[9px] font-black uppercase tracking-widest leading-none text-fk-success">Rewards Balance</p>
+                                            <p className="text-sm font-black text-fk-success">
+                                                {loyaltyBalance.toLocaleString("en-IN")} pts
+                                            </p>
+                                        </div>
+                                    </Link>
+                                )}
 
-                                {/* Favourite Dish */}
                                 {mostOrdered && (
-                                    <div className="flex items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2.5 shadow-sm">
-                                        <div className="flex h-7 w-7 items-center justify-center rounded-xl bg-violet-100">
+                                    <div className="flex items-center gap-2 rounded-fk-lg border border-violet-200 bg-violet-50 px-4 py-2.5 shadow-sm">
+                                        <div className="flex h-7 w-7 items-center justify-center rounded-fk-sm bg-violet-100">
                                             <TrendingUp size={13} className="text-violet-600" />
                                         </div>
                                         <div>
@@ -411,12 +610,22 @@ export default function MyOrdersPage() {
                                 )}
                             </div>
                         )}
+
+                        {/* Active order — surfaced prominently, real data only */}
+                        {!loading && spotlightOrder && (
+                            <ActiveOrderSpotlight order={spotlightOrder} />
+                        )}
                     </div>
                 </section>
 
-                {/* ── Sticky filter + search ── */}
+                {/* ── Sticky filter + search ──
+                    Phase 10B: Navbar 2.0 added a second mobile-only row
+                    (the location bar) below the main header row, so this
+                    sticky offset needs extra clearance below the lg
+                    breakpoint — unchanged at lg: since that row never
+                    renders there. */}
                 {!loading && !error && orders.length > 0 && (
-                    <div className="sticky top-[68px] z-30 border-b border-amber-100 bg-[#FFFBF5]/95 shadow-sm backdrop-blur-xl">
+                    <div className="sticky top-[124px] z-30 border-b border-fk-border bg-fk-bg/95 shadow-sm backdrop-blur-xl lg:top-[68px]">
                         <div className="mx-auto max-w-7xl px-4 md:px-8">
                             <div className="flex items-center gap-1.5 overflow-x-auto py-3 scrollbar-none">
                                 {TABS.map(({ key, label, icon: Icon }) => {
@@ -426,15 +635,15 @@ export default function MyOrdersPage() {
                                         <button
                                             key={key}
                                             onClick={() => handleFilter(key)}
-                                            className={`flex shrink-0 items-center gap-1.5 rounded-2xl border px-3.5 py-2 text-[12px] font-bold transition-all duration-200 ${isActive
-                                                ? "border-orange-400 bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-md shadow-orange-200"
-                                                : "border-amber-100 bg-white text-stone-600 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-600"
+                                            className={`flex shrink-0 items-center gap-1.5 rounded-fk-md border px-3.5 py-2 text-[12px] font-bold transition-all duration-200 ${isActive
+                                                ? "border-[var(--fk-accent)]/40 bg-gradient-to-r from-[var(--fk-accent)] to-[var(--fk-gold)] text-white shadow-fk-md"
+                                                : "border-fk-border bg-fk-surface-elevated text-fk-text-secondary hover:border-[var(--fk-accent)]/30 hover:bg-fk-surface-selected"
                                                 }`}
                                         >
                                             <Icon size={11} strokeWidth={2.5} />
                                             {label}
                                             {cnt > 0 && (
-                                                <span className={`rounded-full px-1.5 py-px text-[10px] font-black leading-none ${isActive ? "bg-white/25 text-white" : "bg-stone-100 text-stone-500"}`}>
+                                                <span className={`rounded-fk-pill px-1.5 py-px text-[10px] font-black leading-none ${isActive ? "bg-white/25 text-white" : "bg-fk-surface-interactive text-fk-text-secondary"}`}>
                                                     {cnt}
                                                 </span>
                                             )}
@@ -444,16 +653,16 @@ export default function MyOrdersPage() {
                             </div>
                             <div className="pb-3">
                                 <div className="relative">
-                                    <Search size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-stone-400" />
+                                    <Search size={14} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-fk-text-tertiary" />
                                     <input
                                         type="text"
                                         value={search}
                                         onChange={(e) => handleSearch(e.target.value)}
                                         placeholder="Search by dish name, order ID, or your name…"
-                                        className="w-full rounded-2xl border border-amber-200 bg-white py-2.5 pl-10 pr-10 text-sm text-stone-700 shadow-sm placeholder:text-stone-400 transition-all focus:border-orange-400 focus:outline-none focus:ring-2 focus:ring-orange-100"
+                                        className="w-full rounded-fk-lg border border-fk-border bg-fk-surface-elevated py-2.5 pl-10 pr-10 text-sm text-fk-text shadow-sm placeholder:text-fk-text-tertiary transition-all focus:border-[var(--fk-accent)] focus:outline-none focus:ring-2 focus:ring-[var(--fk-accent)]/15"
                                     />
                                     {search && (
-                                        <button onClick={() => handleSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-stone-400 transition-colors hover:text-stone-700">
+                                        <button onClick={() => handleSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-fk-text-tertiary transition-colors hover:text-fk-text">
                                             <X size={13} />
                                         </button>
                                     )}
@@ -471,37 +680,37 @@ export default function MyOrdersPage() {
                         </div>
                     )}
                     {!loading && error && (
-                        <div className="flex flex-col items-center rounded-3xl border border-red-100 bg-white px-8 py-16 text-center shadow-sm">
+                        <div className="flex flex-col items-center rounded-fk-lg border border-fk-danger/25 bg-fk-surface-elevated px-8 py-16 text-center shadow-sm">
                             <div className="mb-4 text-4xl">⚠️</div>
-                            <p className="text-base font-black text-stone-900">Something went wrong</p>
-                            <p className="mt-1 text-sm text-stone-500">{error}</p>
+                            <p className="text-base font-black text-fk-text">Something went wrong</p>
+                            <p className="mt-1 text-sm text-fk-text-secondary">{error}</p>
                             <button
                                 onClick={() => window.location.reload()}
-                                className="mt-5 rounded-full border border-red-200 bg-white px-6 py-2.5 text-sm font-bold text-red-600 shadow-sm transition-all hover:bg-red-50"
+                                className="mt-5 rounded-fk-pill border border-fk-danger/25 bg-fk-surface-elevated px-6 py-2.5 text-sm font-bold text-fk-danger shadow-sm transition-all hover:bg-fk-danger/5"
                             >
                                 Retry
                             </button>
                         </div>
                     )}
                     {!loading && !error && filteredOrders.length === 0 && (
-                        <EmptyState filter={filter} onClear={() => handleFilter("all")} />
+                        <OrdersEmptyState filter={filter} onClear={() => handleFilter("all")} />
                     )}
                     {!loading && !error && filteredOrders.length > 0 && (
                         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-sm text-stone-500">
+                            <p className="text-sm text-fk-text-secondary">
                                 Showing{" "}
-                                <span className="font-black text-stone-800">
+                                <span className="font-black text-fk-text">
                                     {(page - 1) * ORDERS_PER_PAGE + 1}–{Math.min(page * ORDERS_PER_PAGE, filteredOrders.length)}
                                 </span>
                                 {" "}of{" "}
-                                <span className="font-black text-stone-800">{filteredOrders.length}</span>
+                                <span className="font-black text-fk-text">{filteredOrders.length}</span>
                                 {" "}order{filteredOrders.length !== 1 ? "s" : ""}
-                                {search && <span className="text-orange-500"> for "{search}"</span>}
+                                {search && <span className="text-[var(--fk-accent)]"> for &quot;{search}&quot;</span>}
                             </p>
                             {search && (
                                 <button
                                     onClick={() => handleSearch("")}
-                                    className="flex items-center gap-1.5 rounded-full border border-stone-200 bg-white px-3 py-1.5 text-[11px] font-bold text-stone-500 shadow-sm transition-all hover:bg-stone-50"
+                                    className="flex items-center gap-1.5 rounded-fk-pill border border-fk-border bg-fk-surface-elevated px-3 py-1.5 text-[11px] font-bold text-fk-text-secondary shadow-sm transition-all hover:bg-fk-surface-interactive"
                                 >
                                     <X size={11} /> Clear search
                                 </button>
@@ -517,7 +726,7 @@ export default function MyOrdersPage() {
                             </div>
                             <Pagination current={page} total={totalPages} onChange={handlePage} />
                             {totalPages > 1 && (
-                                <p className="mt-3 text-center text-xs text-stone-400">
+                                <p className="mt-3 text-center text-xs text-fk-text-tertiary">
                                     {filteredOrders.length} order{filteredOrders.length !== 1 ? "s" : ""} · {ORDERS_PER_PAGE} per page
                                 </p>
                             )}
@@ -525,8 +734,8 @@ export default function MyOrdersPage() {
                     )}
 
                     {!loading && !error && orders.length > 0 && (
-                        <div className="relative mt-12 overflow-hidden rounded-3xl shadow-xl shadow-orange-200/60">
-                            <div className="bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-400 p-6 md:p-8">
+                        <div className="relative mt-12 overflow-hidden rounded-fk-lg shadow-fk-lg">
+                            <div className="bg-gradient-to-r from-[var(--fk-accent)] via-[var(--fk-gold)] to-amber-300 p-6 md:p-8">
                                 <div
                                     className="pointer-events-none absolute inset-0 opacity-[0.10]"
                                     style={{ backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.6) 1px, transparent 1px)", backgroundSize: "20px 20px" }}
@@ -539,7 +748,7 @@ export default function MyOrdersPage() {
                                     </div>
                                     <Link
                                         href="/menu"
-                                        className="flex shrink-0 items-center gap-2 rounded-full bg-white px-7 py-3 text-sm font-black text-orange-600 shadow-lg shadow-orange-800/20 transition-all hover:bg-orange-50 active:scale-95"
+                                        className="flex shrink-0 items-center gap-2 rounded-fk-pill bg-white px-7 py-3 text-sm font-black text-[var(--fk-accent)] shadow-fk-lg transition-all hover:bg-fk-gold-soft active:scale-95"
                                     >
                                         <UtensilsCrossed size={15} strokeWidth={2.5} />
                                         Order Again

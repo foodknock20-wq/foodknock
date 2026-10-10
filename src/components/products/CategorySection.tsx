@@ -12,10 +12,9 @@
 
 import { useRef, useCallback, memo } from "react";
 import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
-import { useCartStore } from "@/store/cartStore";
-import { toast } from "react-hot-toast";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
+import { useAddToCart } from "@/hooks/useAddToCart";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -65,7 +64,7 @@ const SectionCard = memo(function SectionCard({
 }: {
     product: Product; sectionIndex: number; cardIndex: number;
 }) {
-    const addItem = useCartStore(s => s.addItem);
+    const { handleAdd: addToCart } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
     const meta = getMeta(product.category);
 
@@ -78,20 +77,13 @@ const SectionCard = memo(function SectionCard({
 
     const handleAdd = useCallback((e: React.MouseEvent) => {
         e.preventDefault(); e.stopPropagation();
-        if (unavailable) return;
-        addItem({
-            _id: product._id, name: product.name, price: product.price,
-            image: product.image, quantity: 1, stock: product.stock, category: product.category,
-        });
-        toast.success(`${product.name} added! 🛒`, {
-            style: { background: "#fff7ed", color: "#7c2d12", border: "1px solid #fed7aa", borderRadius: "14px" },
-        });
-    }, [addItem, product, unavailable]);
+        addToCart(product);
+    }, [addToCart, product]);
 
     return (
         <Link
             href={`/menu/${product.slug}`}
-            className={`group flex flex-col overflow-hidden rounded-2xl bg-white transition-all duration-300 ${unavailable
+            className={`group flex flex-col overflow-hidden rounded-2xl bg-fk-surface-elevated transition-all duration-300 ${unavailable
                 ? "opacity-65"
                 : "hover:-translate-y-0.5 hover:shadow-xl hover:shadow-orange-100/60"
                 }`}
@@ -102,7 +94,7 @@ const SectionCard = memo(function SectionCard({
             }}>
 
             {/* Image — PERF: native img + cdnImage */}
-            <div className="relative h-32 w-full overflow-hidden bg-stone-100 sm:h-36 md:h-40">
+            <div className="relative h-32 w-full overflow-hidden bg-fk-surface-interactive sm:h-36 md:h-40">
                 <img
                     src={imgSrc}
                     alt={product.name}
@@ -114,8 +106,8 @@ const SectionCard = memo(function SectionCard({
                 <div className="absolute inset-0 bg-gradient-to-t from-black/28 via-transparent to-transparent pointer-events-none" />
 
                 {unavailable && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/45 backdrop-blur-[2px] pointer-events-none">
-                        <span className="rounded-full border border-stone-300 bg-white/90 px-2.5 py-0.5 text-[9.5px] font-black uppercase tracking-widest text-stone-500 shadow-sm">
+                    <div className="absolute inset-0 flex items-center justify-center bg-fk-surface-elevated/45 backdrop-blur-[2px] pointer-events-none">
+                        <span className="rounded-full border border-fk-border bg-fk-surface-elevated/90 px-2.5 py-0.5 text-[9.5px] font-black uppercase tracking-widest text-fk-text-secondary shadow-sm">
                             Unavailable
                         </span>
                     </div>
@@ -129,7 +121,7 @@ const SectionCard = memo(function SectionCard({
 
                 {/* Mobile price pill */}
                 <div className="absolute bottom-2 right-2 sm:hidden pointer-events-none">
-                    <span className="rounded-xl bg-white/95 px-2 py-0.5 text-[12px] font-black shadow backdrop-blur-sm"
+                    <span className="rounded-xl bg-fk-surface-elevated/95 px-2 py-0.5 text-[12px] font-black shadow backdrop-blur-sm"
                         style={{ color: meta.accent }}>
                         ₹{product.price}
                     </span>
@@ -139,7 +131,7 @@ const SectionCard = memo(function SectionCard({
             {/* Body */}
             <div className="flex flex-1 flex-col p-2.5 sm:p-3">
                 <h3
-                    className="line-clamp-2 text-[12.5px] font-black leading-snug text-stone-900 sm:text-[13px]"
+                    className="line-clamp-2 text-[12.5px] font-black leading-snug text-fk-text sm:text-[13px]"
                     style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                     {product.name}
                 </h3>
@@ -150,7 +142,7 @@ const SectionCard = memo(function SectionCard({
                         ₹{product.price}
                     </span>
                     {product.compareAtPrice && product.compareAtPrice > product.price && (
-                        <span className="text-[10px] text-stone-400 line-through">
+                        <span className="text-[10px] text-fk-text-tertiary line-through">
                             ₹{product.compareAtPrice}
                         </span>
                     )}
@@ -167,7 +159,7 @@ const SectionCard = memo(function SectionCard({
                         } : {}),
                     }}
                     className={`mt-auto flex w-full items-center justify-center gap-1 rounded-xl py-2 text-[11px] font-black transition-all duration-200 sm:mt-2 sm:gap-1.5 sm:text-[12px] ${unavailable
-                        ? "cursor-not-allowed bg-stone-100 text-stone-400"
+                        ? "cursor-not-allowed bg-fk-surface-interactive text-fk-text-tertiary"
                         : "text-white active:scale-95 hover:brightness-110"
                         }`}>
                     {unavailable ? "Sold Out" : "+ Add"}
@@ -211,7 +203,7 @@ const CategorySection = memo(function CategorySection({
     return (
         <section
             id={sectionId}
-            className={`fk-cat-section relative py-6 md:py-8 ${isFirst ? "" : "border-t border-stone-100/80"}`}>
+            className={`fk-cat-section relative py-6 md:py-8 ${isFirst ? "" : "border-t border-fk-border/80"}`}>
             {/* Subtle bg tint */}
             <div className={`pointer-events-none absolute inset-0 bg-gradient-to-b ${meta.bg} opacity-40`} />
 
@@ -230,11 +222,11 @@ const CategorySection = memo(function CategorySection({
                         </div>
                         <div>
                             <h2
-                                className="text-lg font-black text-stone-900 md:text-xl"
+                                className="text-lg font-black text-fk-text md:text-xl"
                                 style={{ fontFamily: "'Playfair Display',Georgia,serif" }}>
                                 {category}
                             </h2>
-                            <p className="text-[11px] text-stone-400">
+                            <p className="text-[11px] text-fk-text-tertiary">
                                 {availableCount} item{availableCount !== 1 ? "s" : ""} available
                             </p>
                         </div>
@@ -243,11 +235,11 @@ const CategorySection = memo(function CategorySection({
                     <div className="flex items-center gap-2">
                         <div className="hidden items-center gap-1.5 md:flex">
                             <button onClick={scrollLeft}
-                                className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-400 shadow-sm transition-all hover:border-orange-300 hover:text-orange-500">
+                                className="flex h-8 w-8 items-center justify-center rounded-full border border-fk-border bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-orange-300 hover:text-orange-500">
                                 <ChevronLeft size={13} strokeWidth={2.5} />
                             </button>
                             <button onClick={scrollRight}
-                                className="flex h-8 w-8 items-center justify-center rounded-full border border-stone-200 bg-white text-stone-400 shadow-sm transition-all hover:border-orange-300 hover:text-orange-500">
+                                className="flex h-8 w-8 items-center justify-center rounded-full border border-fk-border bg-fk-surface-elevated text-fk-text-tertiary shadow-sm transition-all hover:border-orange-300 hover:text-orange-500">
                                 <ChevronRight size={13} strokeWidth={2.5} />
                             </button>
                         </div>

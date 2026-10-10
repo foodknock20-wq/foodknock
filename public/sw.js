@@ -84,6 +84,12 @@ const ALLOWED_ROUTE_BASES = [
     "/reviews",
     "/cart",
     "/loyalty",
+    // Notification System 2.0 — Account and Campaign notifications
+    // (Phase 9's required destination set) previously fell through to "/"
+    // because their base routes were never added here, even though the
+    // rest of the click-handling/window-focus logic already worked.
+    "/account",
+    "/campaigns",
 ];
 
 /**
@@ -192,64 +198,84 @@ self.addEventListener("notificationclick", (event) => {
 
     event.waitUntil(
         (async () => {
-            const windowClients = await clients.matchAll({
-                type: "window",
-                includeUncontrolled: true,
-            });
+            // Top-level guard: on Android (especially installed PWAs/
+            // WebAPKs under background/battery restrictions), clients.
+            // matchAll() itself can intermittently reject — with no
+            // catch around the WHOLE click flow, that silently killed
+            // the click entirely (notification closes, nothing else
+            // happens — exactly the symptom this guards against). Every
+            // path below now guarantees a single clients.openWindow()
+            // fallback no matter what fails first.
+            try {
+                const windowClients = await clients.matchAll({
+                    type: "window",
+                    includeUncontrolled: true,
+                });
 
-            const sameOriginClients = windowClients.filter((client) =>
-                client.url.startsWith(self.location.origin)
-            );
+                const sameOriginClients = windowClients.filter((client) =>
+                    client.url.startsWith(self.location.origin)
+                );
 
-            if (sameOriginClients.length === 0) {
-                // App fully closed, or first-ever launch from a
-                // notification — open exactly one new window.
+                if (sameOriginClients.length === 0) {
+                    // App fully closed, or first-ever launch from a
+                    // notification — open exactly one new window.
+                    if (clients.openWindow) {
+                        await clients.openWindow(fullUrl);
+                    }
+                    return;
+                }
+
+                // Prefer a client already sitting on the exact target URL —
+                // just focus it, skip a redundant navigate() call entirely.
+                const exactMatch = sameOriginClients.find((client) => {
+                    try {
+                        return new URL(client.url).pathname === safeUrl;
+                    } catch {
+                        return false;
+                    }
+                });
+
+                const target = exactMatch || sameOriginClients[0];
+
+                try {
+                    await target.focus();
+                } catch {
+                    // focus() can reject in some embedded/TWA WebView contexts
+                    // — non-fatal, navigation attempt still proceeds below.
+                }
+
+                if (exactMatch) {
+                    // Already on the right page — done, no further action.
+                    return;
+                }
+
+                if ("navigate" in target) {
+                    try {
+                        await target.navigate(fullUrl);
+                        return; // success — no fallback needed
+                    } catch {
+                        // navigate() threw (rare cross-origin edge case, or the
+                        // client closed between matchAll() and here) — fall
+                        // through to openWindow() rather than leaving the
+                        // click unresolved.
+                    }
+                }
+
+                // navigate() unsupported or failed — still guarantee
+                // navigation via exactly one new window.
                 if (clients.openWindow) {
                     await clients.openWindow(fullUrl);
                 }
-                return;
-            }
-
-            // Prefer a client already sitting on the exact target URL —
-            // just focus it, skip a redundant navigate() call entirely.
-            const exactMatch = sameOriginClients.find((client) => {
+            } catch (err) {
+                // Absolute last resort — matchAll() (or something else
+                // unexpected) threw before any of the above ran. Still
+                // try to open the destination directly rather than
+                // leaving the tap with zero visible effect.
                 try {
-                    return new URL(client.url).pathname === safeUrl;
-                } catch {
-                    return false;
-                }
-            });
-
-            const target = exactMatch || sameOriginClients[0];
-
-            try {
-                await target.focus();
-            } catch {
-                // focus() can reject in some embedded/TWA WebView contexts
-                // — non-fatal, navigation attempt still proceeds below.
-            }
-
-            if (exactMatch) {
-                // Already on the right page — done, no further action.
-                return;
-            }
-
-            if ("navigate" in target) {
-                try {
-                    await target.navigate(fullUrl);
-                    return; // success — no fallback needed
-                } catch {
-                    // navigate() threw (rare cross-origin edge case, or the
-                    // client closed between matchAll() and here) — fall
-                    // through to openWindow() rather than leaving the
-                    // click unresolved.
-                }
-            }
-
-            // navigate() unsupported or failed — still guarantee
-            // navigation via exactly one new window.
-            if (clients.openWindow) {
-                await clients.openWindow(fullUrl);
+                    if (clients.openWindow) {
+                        await clients.openWindow(fullUrl);
+                    }
+                } catch { /* genuinely nothing more we can do here */ }
             }
         })()
     );

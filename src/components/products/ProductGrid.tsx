@@ -7,7 +7,8 @@
 
 import { useEffect, useMemo, useState, useCallback, memo } from "react";
 import ProductCard from "./ProductCard";
-import { ChevronLeft, ChevronRight, SearchX } from "lucide-react";
+import { ChevronLeft, ChevronRight, SearchX, UtensilsCrossed } from "lucide-react";
+import EmptyState from "@/components/ui/EmptyState";
 
 type Product = {
     _id: string;
@@ -26,8 +27,13 @@ type Product = {
 
 const ITEMS_PER_PAGE = 12;
 
-// ─── Empty state — memoized, never re-renders unless hasFilters changes ───────
-const EmptyState = memo(function EmptyState({
+// ─── Empty state — reuses the Phase 1 shared EmptyState primitive instead
+// of a bespoke local implementation (consolidation per Phase 3's card/
+// empty-state audit — this was its own 7th duplicate before). Same
+// call-site API as before (`hasFilters`/`onReset`), just backed by the
+// shared component now. Food-specific, non-generic copy per spec section
+// 23 ("No tasty matches found", not a childish/generic ecommerce message).
+const GridEmptyState = memo(function GridEmptyState({
     hasFilters,
     onReset,
 }: {
@@ -35,31 +41,17 @@ const EmptyState = memo(function EmptyState({
     onReset: () => void;
 }) {
     return (
-        <div className="flex flex-col items-center justify-center rounded-3xl border border-amber-100 bg-white px-6 py-20 text-center shadow-sm">
-            <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-3xl border border-orange-100 bg-orange-50">
-                {hasFilters ? (
-                    <SearchX size={32} className="text-orange-400" strokeWidth={1.5} />
-                ) : (
-                    <span className="text-4xl">🍽️</span>
-                )}
-            </div>
-            <h3 className="text-xl font-black text-stone-800">
-                {hasFilters ? "No items found" : "Menu coming soon"}
-            </h3>
-            <p className="mt-2 max-w-xs text-sm leading-relaxed text-stone-500">
-                {hasFilters
+        <EmptyState
+            icon={hasFilters ? SearchX : UtensilsCrossed}
+            title={hasFilters ? "No tasty matches found" : "Menu coming soon"}
+            description={
+                hasFilters
                     ? "Try a different search or category — we have lots of delicious options!"
-                    : "Our menu is being prepared. Check back soon for something delicious!"}
-            </p>
-            {hasFilters && (
-                <button
-                    onClick={onReset}
-                    className="mt-5 rounded-full bg-gradient-to-r from-orange-500 to-amber-500 px-6 py-2.5 text-sm font-bold text-white shadow-md shadow-orange-200 transition-all hover:brightness-110 active:scale-95"
-                >
-                    Show all items
-                </button>
-            )}
-        </div>
+                    : "Our menu is being prepared. Check back soon for something delicious!"
+            }
+            ctaLabel={hasFilters ? "Show all items" : undefined}
+            onCtaClick={hasFilters ? onReset : undefined}
+        />
     );
 });
 
@@ -70,8 +62,6 @@ const Pagination = memo(function Pagination({
     currentPage: number; totalPages: number; onPageChange: (p: number) => void;
     totalItems: number; startItem: number; endItem: number;
 }) {
-    if (totalPages <= 1) return null;
-
     // PERF FIX: getPageNumbers wrapped in useCallback so it is not recreated on
     // every render — only recalculates when currentPage or totalPages actually changes.
     const getPageNumbers = useCallback((): (number | "...")[] => {
@@ -88,6 +78,14 @@ const Pagination = memo(function Pagination({
 
     // PERF: memoize the computed page number array so it isn't rebuilt each render
     const pageNumbers = useMemo(() => getPageNumbers(), [getPageNumbers]);
+
+    // Moved after the hooks above — a conditional return BEFORE hook calls
+    // violates Rules of Hooks (if totalPages changes from >1 to <=1 across
+    // renders, React would see fewer hooks called than the previous render).
+    // Pre-existing bug, fixed here since this file is already being touched
+    // this phase — behavior is unchanged (still renders nothing when there's
+    // only one page).
+    if (totalPages <= 1) return null;
 
     return (
         <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
@@ -168,7 +166,7 @@ const ProductGrid = memo(function ProductGrid({
     useEffect(() => { setCurrentPage(1); }, [products]);
 
     if (!products.length) {
-        return <EmptyState hasFilters={hasFilters} onReset={onReset} />;
+        return <GridEmptyState hasFilters={hasFilters} onReset={onReset} />;
     }
 
     return (
