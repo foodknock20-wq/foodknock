@@ -24,6 +24,7 @@ import { FREE_DELIVERY_AT } from "@/lib/delivery";
 import { computeSiteStats } from "@/lib/siteStats";
 
 import HomeSearchEntry from "@/components/home/HomeSearchEntry";
+import HomeUpgradeNotice from "@/components/home/HomeUpgradeNotice";
 import ShopClosedBanner from "@/components/home/ShopClosedBanner";
 import FreeDeliveryStrip from "@/components/home/FreeDeliveryStrip";
 import CategoryRail from "@/components/home/CategoryRail";
@@ -379,6 +380,9 @@ export default async function HomePage() {
                 <h1 className="sr-only">
                     FoodKnock — Vegetarian Online Food Delivery in Danta, Sikar, Rajasthan
                 </h1>
+                {/* TEMPORARY — FoodKnock 2.0 migration notice, remove after
+                    ~1 month alongside src/components/home/HomeUpgradeNotice.tsx. */}
+                <HomeUpgradeNotice />
                 <HomeSearchEntry />
                 {!isShopOpen && <ShopClosedBanner closedReasonLabel={closedReasonLabel} />}
 
