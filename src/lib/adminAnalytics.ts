@@ -64,6 +64,15 @@ export type CoreTotals = {
     cancelledOrders: number;
     deliveredOrders: number;
     revenue: number;
+    // Phase 1 Revenue Accuracy — ADDITIVE metric, does not redefine `revenue`
+    // above (which remains sum(totalAmount) of ALL non-cancelled orders,
+    // unchanged). This is the narrower subset: sum(totalAmount) of orders
+    // whose CURRENT status is specifically "delivered" — i.e. "recognized"
+    // revenue for orders that actually completed, as distinct from the
+    // broader "gross non-cancelled order value" the existing `revenue`
+    // field represents. Surfaced only where it adds clarity (see the
+    // "Delivered" KPI card); never shown as if it replaced `revenue`.
+    deliveredRevenue: number;
     deliveryFeeRevenue: number;
     couponDiscount: number;
     offerDiscount: number;
@@ -87,6 +96,7 @@ export async function getCoreTotals(range: { start: Date; end: Date }): Promise<
                 cancelledOrders: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
                 deliveredOrders: { $sum: { $cond: [{ $eq: ["$status", "delivered"] }, 1, 0] } },
                 revenue: { $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$totalAmount", 0] } },
+                deliveredRevenue: { $sum: { $cond: [{ $eq: ["$status", "delivered"] }, "$totalAmount", 0] } },
                 deliveryFeeRevenue: { $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$deliveryFee", 0] } },
                 couponDiscount: { $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$coupon.discountAmount", 0] } },
                 offerDiscount: { $sum: { $cond: [{ $ne: ["$status", "cancelled"] }, "$offer.discountAmount", 0] } },
@@ -99,13 +109,14 @@ export async function getCoreTotals(range: { start: Date; end: Date }): Promise<
 
     const r = rows[0];
     if (!r) {
-        return { totalOrders: 0, cancelledOrders: 0, deliveredOrders: 0, revenue: 0, deliveryFeeRevenue: 0, couponDiscount: 0, offerDiscount: 0, loyaltyRedemptionValue: 0, codOrders: 0, razorpayOrders: 0 };
+        return { totalOrders: 0, cancelledOrders: 0, deliveredOrders: 0, revenue: 0, deliveredRevenue: 0, deliveryFeeRevenue: 0, couponDiscount: 0, offerDiscount: 0, loyaltyRedemptionValue: 0, codOrders: 0, razorpayOrders: 0 };
     }
     return {
         totalOrders: r.totalOrders ?? 0,
         cancelledOrders: r.cancelledOrders ?? 0,
         deliveredOrders: r.deliveredOrders ?? 0,
         revenue: r.revenue ?? 0,
+        deliveredRevenue: r.deliveredRevenue ?? 0,
         deliveryFeeRevenue: r.deliveryFeeRevenue ?? 0,
         couponDiscount: r.couponDiscount ?? 0,
         offerDiscount: r.offerDiscount ?? 0,

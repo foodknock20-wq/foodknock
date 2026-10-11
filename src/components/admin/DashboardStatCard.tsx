@@ -70,7 +70,7 @@ const TREND_ICONS: Record<TrendDirection, typeof TrendingUp> = {
 const TREND_COLORS: Record<TrendDirection, string> = {
     up:      "text-emerald-400 bg-emerald-500/10 border-emerald-500/15",
     down:    "text-rose-400 bg-rose-500/10 border-rose-500/15",
-    neutral: "text-stone-500 bg-white/5 border-white/5",
+    neutral: "text-stone-400 bg-white/5 border-white/5",
 };
 
 export default function DashboardStatCard({

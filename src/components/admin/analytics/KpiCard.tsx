@@ -21,7 +21,7 @@ export default function KpiCard({
     const isNew = hasComparison && comparisonPct === null && comparisonDirection === "up";
     const dirColor =
         comparisonDirection === "up" ? "text-emerald-400" :
-        comparisonDirection === "down" ? "text-rose-400" : "text-stone-500";
+        comparisonDirection === "down" ? "text-rose-400" : "text-stone-400";
     const DirIcon = comparisonDirection === "up" ? ArrowUp : comparisonDirection === "down" ? ArrowDown : Minus;
 
     return (

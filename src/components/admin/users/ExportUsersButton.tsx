@@ -149,7 +149,7 @@ export default function ExportUsersButton() {
                             </div>
                             <button
                                 onClick={handleClose}
-                                className="rounded-lg p-1.5 text-stone-500 transition-colors hover:bg-white/[0.05] hover:text-stone-300"
+                                className="rounded-lg p-1.5 text-stone-300 transition-colors hover:bg-white/[0.05] hover:text-stone-100"
                             >
                                 <X size={15} />
                             </button>

@@ -20,7 +20,7 @@ import DonutChart from "@/components/admin/analytics/charts/DonutChart";
 import { OrderStatusBadge, STATUS_CONFIG } from "@/components/admin/orders/OrderStatusBadge";
 import { getDashboardData } from "@/lib/adminDashboard";
 import { isValidRangeKey, percentChange, type AnalyticsRangeKey } from "@/lib/analyticsDateRange";
-import { formatINR, formatCompactINR, formatNumber, formatRate } from "@/lib/analyticsFormat";
+import { formatINR, formatNumber, formatRate } from "@/lib/analyticsFormat";
 import { cdnImage } from "@/lib/cdnImage";
 import {
     ShoppingBag, IndianRupee, Receipt, Users, TrendingUp,
@@ -30,10 +30,22 @@ import {
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 
+// Phase 1 Revenue Accuracy — expanded from the original 3 tabs (Today/This
+// Week/This Month) to the full preset set already supported server-side by
+// resolveAnalyticsRange() (src/lib/analyticsDateRange.ts), so "Sales
+// Overview" offers the same practical report ranges as the Analytics
+// Center. Custom start/end date selection intentionally stays on the
+// Analytics Center page (/admin/analytics, via AnalyticsDateRangeBar) —
+// not duplicated here — since this dashboard section is a quick operational
+// snapshot, not the primary reporting surface.
 const RANGE_TABS: { key: AnalyticsRangeKey; label: string }[] = [
     { key: "today", label: "Today" },
-    { key: "7d", label: "This Week" },
+    { key: "yesterday", label: "Yesterday" },
+    { key: "7d", label: "Last 7 Days" },
+    { key: "30d", label: "Last 30 Days" },
     { key: "thisMonth", label: "This Month" },
+    { key: "lastMonth", label: "Last Month" },
+    { key: "thisYear", label: "This Year" },
 ];
 
 const OUTCOME_COLORS: Record<string, string> = {
@@ -111,7 +123,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
                 <KpiCard label="Today's Orders" value={formatNumber(today.totalOrders)} icon={ShoppingBag}
                     description="Orders created today (Asia/Kolkata), including cancelled."
                     comparisonPct={todayOrdersChange.pct} comparisonDirection={todayOrdersChange.direction} sub="vs yesterday" />
-                <KpiCard label="Today's Revenue" value={formatCompactINR(today.revenue)} icon={IndianRupee}
+                <KpiCard label="Today's Revenue" value={formatINR(today.revenue)} icon={IndianRupee}
                     description="Final amount of today's non-cancelled orders."
                     comparisonPct={todayRevenueChange.pct} comparisonDirection={todayRevenueChange.direction} sub="vs yesterday" />
                 <KpiCard label="Avg Order Value" value={formatINR(todayAov)} icon={Receipt}
@@ -121,7 +133,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 <KpiCard label="Total Orders" value={formatNumber(allTime.totalOrders)} icon={ClipboardList}
                     description="All orders ever placed, archived excluded." sub="All time" />
-                <KpiCard label="Total Revenue" value={formatCompactINR(allTime.totalRevenue)} icon={TrendingUp}
+                <KpiCard label="Total Revenue" value={formatINR(allTime.totalRevenue)} icon={TrendingUp}
                     description="Lifetime non-cancelled revenue, archived excluded." sub="All time" />
                 <KpiCard label="Total Customers" value={formatNumber(totalCustomers)} icon={Users}
                     description="Registered customer accounts." sub="Registered" />
@@ -151,17 +163,19 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
                                 >
                                     <div className="min-w-0 flex-1">
                                         <div className="flex items-center gap-2">
-                                            <span className="font-mono text-[12px] font-bold text-stone-200">{order.orderId}</span>
+                                            <p className="truncate text-[12.5px] font-bold text-stone-100">{order.customerName}</p>
                                             <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-1.5 py-0.5 text-[9px] font-bold uppercase text-stone-300">
                                                 {order.paymentMethod}
                                             </span>
                                         </div>
                                         <p className="mt-0.5 truncate text-[11px] text-stone-500">
-                                            {order.customerName} · {order.items} item{order.items !== 1 ? "s" : ""} · {timeAgo(order.createdAt)}
+                                            {order.items} item{order.items !== 1 ? "s" : ""} · {timeAgo(order.createdAt)}
                                         </p>
+                                        {/* Order ID — secondary/muted, full id, still one click away via this row's own link to the detail view. */}
+                                        <p className="mt-0.5 truncate font-mono text-[10px] text-stone-600">{order.orderId}</p>
                                     </div>
                                     <div className="flex shrink-0 flex-col items-end gap-1">
-                                        <span className="font-mono text-[12.5px] font-bold text-stone-100">₹{order.totalAmount.toLocaleString("en-IN")}</span>
+                                        <span className="font-mono text-[12.5px] font-bold text-stone-100">{formatINR(order.totalAmount)}</span>
                                         <OrderStatusBadge status={order.status} />
                                     </div>
                                 </Link>
@@ -267,7 +281,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
                 <TrendChart
                     points={trend.map((t) => ({ bucketStart: t.bucketStart, value: t.revenue }))}
                     color="#f97316"
-                    valueFormat={formatCompactINR}
+                    valueFormat={formatINR}
                     bucket={data.range.bucket}
                     emptyLabel="No sales data in this range"
                 />
@@ -310,7 +324,7 @@ export default async function AdminDashboardPage({ searchParams }: { searchParam
                                 </span>
                                 <p className="min-w-0 flex-1 truncate text-[12.5px] font-semibold text-stone-200">{p.name}</p>
                                 <span className="shrink-0 text-[11px] text-stone-500">{p.units} sold</span>
-                                <span className="shrink-0 font-mono text-[12.5px] font-bold text-amber-400">{formatCompactINR(p.revenue)}</span>
+                                <span className="shrink-0 font-mono text-[12.5px] font-bold text-amber-400">{formatINR(p.revenue)}</span>
                             </div>
                         ))}
                     </div>

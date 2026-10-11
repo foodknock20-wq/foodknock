@@ -111,7 +111,7 @@ export default function OrderDetailActions({
                 <button
                     onClick={() => setShowDelete(true)}
                     title="Delete order"
-                    className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-black text-stone-500 transition-all duration-200 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
+                    className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-[11px] font-black text-stone-300 transition-all duration-200 hover:border-rose-500/30 hover:bg-rose-500/10 hover:text-rose-400"
                 >
                     <Trash2 size={12} />
                 </button>

@@ -59,23 +59,103 @@ const MENU_PROJECTION = {
     tags:             1,
 } as const;
 
-async function getProducts() {
-    try {
-        await connectDB();
-        // ✅ FIX #3 — .lean() returns plain JS objects (no Mongoose overhead)
-        //             Uses compound index: (isAvailable, stock, isFeatured, createdAt)
-        const products = await Product
-            .find({ isAvailable: true }, MENU_PROJECTION)
-            .sort({ isFeatured: -1, createdAt: -1 })
-            .lean();
+// PERF PASS 3 — in-process, per-instance 30s TTL cache for the full menu
+// list, mirroring the existing getShopStatus() pattern in src/models/Shop.ts.
+// This is a PUBLIC, NON-personalized, display-only read (same filter/sort/
+// projection for every visitor, no cart/auth/payment data involved). Stock
+// and price shown here can lag reality by up to 30s after an admin change or
+// a concurrent order — that is safe because checkout re-validates stock
+// (atomic $inc in createOrderCore.ts) and price (calculateAuthoritativePricing())
+// live against the DB independently; nothing downstream ever trusts this
+// cached value. Cache lives in module scope: it survives across requests on
+// the same warm Node.js worker/Fluid instance and resets on cold start —
+// same lifetime characteristic as Shop.ts's cache, not a shared/global store.
+const MENU_CACHE_TTL_MS = 30_000;
 
-        // ✅ FIX #4 (PERF PASS 2) — cheap shallow serialization instead of
-        // JSON.parse(JSON.stringify(...)). Same resulting shape.
-        return serializeMongoDocs(products);
-    } catch (error) {
-        console.error("PRODUCT_FETCH_ERROR:", error);
-        return [];
+// Reliability fallback — NOT a freshness window. If a refresh attempt fails
+// (transient Mongo hiccup) after the normal 30s TTL has lapsed, returning []
+// would make the entire public menu look empty even though a perfectly good,
+// recently-fetched list is still sitting in `cachedMenuProducts`. Serving
+// that stale list instead is a strictly better degraded experience — but
+// ONLY up to this hard, finite ceiling. Past it, a renewed failure falls
+// back to the original `[]` behavior rather than serving arbitrarily old
+// data forever (no indefinite stale serving). This never extends
+// menuCacheExpiresAt and never suppresses the next retry — see getProducts().
+const MENU_STALE_MAX_MS = 5 * 60_000; // 5 minutes
+
+type MenuProducts = Awaited<ReturnType<typeof fetchMenuProductsFresh>>;
+let cachedMenuProducts: MenuProducts | null = null;
+let menuCacheExpiresAt = 0;
+// Explicit timestamp of the last SUCCESSFUL Mongo fetch, set only alongside
+// cachedMenuProducts/menuCacheExpiresAt in the try branch below — never in
+// the catch branch. This is the sole source of truth the stale-fallback
+// check uses to bound MENU_STALE_MAX_MS; it is intentionally a separate
+// variable (not derived from menuCacheExpiresAt - MENU_CACHE_TTL_MS) so the
+// stale-age calculation keeps working correctly even if MENU_CACHE_TTL_MS
+// is ever changed independently, and so "when did we last actually reach
+// Mongo" is never implicit.
+let menuCacheLastSuccessAt = 0;
+let menuCacheInFlight: Promise<MenuProducts> | null = null;
+
+async function fetchMenuProductsFresh() {
+    await connectDB();
+    // ✅ FIX #3 — .lean() returns plain JS objects (no Mongoose overhead)
+    //             Uses compound index: (isAvailable, stock, isFeatured, createdAt)
+    const products = await Product
+        .find({ isAvailable: true }, MENU_PROJECTION)
+        .sort({ isFeatured: -1, createdAt: -1 })
+        .lean();
+
+    // ✅ FIX #4 (PERF PASS 2) — cheap shallow serialization instead of
+    // JSON.parse(JSON.stringify(...)). Same resulting shape.
+    return serializeMongoDocs(products);
+}
+
+async function getProducts() {
+    if (cachedMenuProducts !== null && Date.now() < menuCacheExpiresAt) {
+        return cachedMenuProducts;
     }
+
+    // In-flight de-duplication: if a refresh is already running (e.g. several
+    // requests arrive within the same expired-cache instant), every caller
+    // awaits the SAME in-progress fetch instead of each firing its own
+    // redundant query. A failed fetch is never cached (see catch below) and
+    // always clears menuCacheInFlight so the next call retries cleanly.
+    if (menuCacheInFlight) {
+        return menuCacheInFlight;
+    }
+
+    menuCacheInFlight = (async () => {
+        try {
+            const products = await fetchMenuProductsFresh();
+            cachedMenuProducts = products;
+            menuCacheExpiresAt = Date.now() + MENU_CACHE_TTL_MS;
+            menuCacheLastSuccessAt = Date.now();
+            return products;
+        } catch (error) {
+            console.error("PRODUCT_FETCH_ERROR:", error);
+
+            // Transient-failure fallback (bounded — see MENU_STALE_MAX_MS
+            // above). Deliberately does NOT touch menuCacheExpiresAt,
+            // cachedMenuProducts, or menuCacheLastSuccessAt: the cache stays
+            // marked expired either way, so the very next request still
+            // attempts a fresh refresh — this failure is never mistaken for
+            // a successful one and never suppresses retries. On cold start
+            // (menuCacheLastSuccessAt still 0, cachedMenuProducts still
+            // null) this falls straight through to the original `[]`.
+            const staleAgeMs = Date.now() - menuCacheLastSuccessAt;
+            if (cachedMenuProducts !== null && staleAgeMs <= MENU_STALE_MAX_MS) {
+                console.warn("PRODUCT_FETCH_SERVING_STALE_FALLBACK", { ageMs: staleAgeMs });
+                return cachedMenuProducts;
+            }
+
+            return [];
+        } finally {
+            menuCacheInFlight = null;
+        }
+    })();
+
+    return menuCacheInFlight;
 }
 
 export default async function MenuPage() {

@@ -57,24 +57,105 @@ type PageProps = {
 // once per request (here: once in generateMetadata(), once in the page
 // component). `cache()` memoizes the function's result for the lifetime of
 // a single server request/render pass, keyed by its arguments — so calling
-// getProduct(slug) twice in the same request only ever hits Mongo once.
-// This does NOT introduce cross-request caching or staleness of any kind
-// (the page is still `force-dynamic` / fully SSR on every request); it only
-// removes the redundant intra-request duplicate query.
-const getProduct = cache(async (slug: string) => {
-    try {
-        await connectDB();
-        // ✅ Only select fields needed by ProductDetail — excludes large unused fields
-        const product = await Product
-            .findOne({ slug })
-            .select("name slug description shortDescription price compareAtPrice category image stock isAvailable isFeatured rating reviewCount tags ingredients")
-            .lean();
-        if (!product) return null;
-        return serializeMongoDoc(product);
-    } catch (error) {
-        console.error("PRODUCT_FETCH_ERROR:", error);
-        return null;
+// getProduct(slug) twice in the SAME request only ever hits Mongo once.
+//
+// PERF PASS 3 — ACTUAL current behavior (supersedes the old "no cross-request
+// caching" claim this comment used to make — that is no longer true): the
+// cache() wrapper above is now backed by a real in-process, per-instance,
+// 30-second TTL cache (`productCache`, keyed by slug, defined below), so a
+// SECOND, LATER request for the same slug — not just a second call within
+// one request — can also be served without hitting Mongo, for up to 30s.
+// This cache is: PUBLIC, non-personalized, display-only data (no cart/auth/
+// payment fields are selected or cached); scoped to a single warm Node.js
+// worker/Fluid instance (module-scope — it does NOT survive a cold start and
+// is never shared across instances); safe for stock/price/availability to
+// lag reality by up to 30s, because checkout always re-validates stock
+// (atomic $inc in createOrderCore.ts) and price (calculateAuthoritativePricing())
+// live against the DB and never trusts this cached value. A "not found"
+// (null) result is cached too — bounded and harmless, and avoids repeatedly
+// re-querying for a dead/bot-hit slug. Bounded to MAX_CACHED_PRODUCTS entries
+// with FIFO eviction (oldest-inserted key dropped first).
+const PRODUCT_CACHE_TTL_MS = 30_000;
+const MAX_CACHED_PRODUCTS = 300;
+
+async function fetchProductFresh(slug: string) {
+    await connectDB();
+    // ✅ Only select fields needed by ProductDetail — excludes large unused fields
+    const product = await Product
+        .findOne({ slug })
+        .select("name slug description shortDescription price compareAtPrice category image stock isAvailable isFeatured rating reviewCount tags ingredients")
+        .lean();
+    if (!product) return null;
+    return serializeMongoDoc(product);
+}
+
+type CachedProduct = Awaited<ReturnType<typeof fetchProductFresh>>;
+
+const productCache = new Map<string, { value: CachedProduct; expiresAt: number }>();
+const productCacheInFlight = new Map<string, Promise<CachedProduct>>();
+
+// Return value is deliberately `CachedProduct | undefined`, NOT just
+// `CachedProduct` — `undefined` means "no usable cache entry, go to Mongo";
+// a cached `value: null` (a previously-confirmed "slug not found") is a
+// real, valid hit and is returned as `null`, not as `undefined`. The caller
+// below MUST check `cached !== undefined` (strict), never a truthiness
+// check (`if (cached)`), or a cached "not found" would be misread as a miss
+// and re-queried every time instead of being served from cache.
+function getCachedProduct(slug: string): CachedProduct | undefined {
+    const entry = productCache.get(slug);
+    if (!entry) return undefined;
+    if (Date.now() >= entry.expiresAt) {
+        // Expired — remove it rather than serve stale data past the TTL.
+        productCache.delete(slug);
+        return undefined;
     }
+    return entry.value;
+}
+
+// Bounded-size guarantee: evicts the oldest-INSERTED entry (FIFO via Map's
+// insertion-order iteration) once the cache is full and a genuinely new key
+// is being added — refreshing an existing key never triggers eviction.
+// Every entry gets the SAME fixed TTL at insertion time, so insertion order
+// and expiry order always coincide: the oldest-inserted entry is always
+// also the soonest to expire (or already expired), which is exactly the
+// entry you'd want evicted first anyway. This keeps `productCache` from
+// growing past MAX_CACHED_PRODUCTS regardless of how many distinct slugs
+// are requested or how many expired entries haven't been lazily swept yet
+// by getCachedProduct().
+function setCachedProduct(slug: string, value: CachedProduct): void {
+    if (!productCache.has(slug) && productCache.size >= MAX_CACHED_PRODUCTS) {
+        const oldestKey = productCache.keys().next().value;
+        if (oldestKey !== undefined) productCache.delete(oldestKey);
+    }
+    productCache.set(slug, { value, expiresAt: Date.now() + PRODUCT_CACHE_TTL_MS });
+}
+
+const getProduct = cache(async (slug: string) => {
+    const cached = getCachedProduct(slug);
+    if (cached !== undefined) return cached;
+
+    // In-flight de-duplication per slug: concurrent requests for the same
+    // slug within the same cache-miss instant share one DB call instead of
+    // each firing their own. A failed fetch is never cached (see catch
+    // below) and always clears the in-flight entry so the next call retries.
+    const inFlight = productCacheInFlight.get(slug);
+    if (inFlight) return inFlight;
+
+    const promise = (async () => {
+        try {
+            const result = await fetchProductFresh(slug);
+            setCachedProduct(slug, result);
+            return result;
+        } catch (error) {
+            console.error("PRODUCT_FETCH_ERROR:", error);
+            return null;
+        } finally {
+            productCacheInFlight.delete(slug);
+        }
+    })();
+
+    productCacheInFlight.set(slug, promise);
+    return promise;
 });
 
 // Pre-Phase 17 Phase 3 — replaced the plain same-category query with the

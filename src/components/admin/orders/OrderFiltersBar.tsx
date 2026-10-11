@@ -72,12 +72,18 @@ const SORT_OPTIONS = [
 // Keys this bar owns — everything except `search`/`status`/`attention`,
 // which are driven by AdminListSearchBar and the quick-filter tabs
 // respectively. Used to count "how many advanced filters are active".
-const ADVANCED_KEYS: (keyof OrderFiltersValue)[] = ["payment", "date", "cancellation", "refund", "promotion", "loyalty", "sort"];
+const ADVANCED_KEYS: (keyof OrderFiltersValue)[] = ["payment", "date", "dateFrom", "cancellation", "refund", "promotion", "loyalty", "sort"];
 
 export default function OrderFiltersBar({ value }: { value: OrderFiltersValue }) {
     const router = useRouter();
     const pathname = usePathname();
     const [open, setOpen] = useState(false);
+    // Local-only draft for the two custom-date inputs — only pushed to the
+    // URL (and thus only triggers a server re-fetch) when both are filled
+    // and the admin explicitly applies, mirroring AnalyticsDateRangeBar's
+    // existing custom-range pattern (Phase 1) rather than inventing a new one.
+    const [customFrom, setCustomFrom] = useState(value.dateFrom ?? "");
+    const [customTo, setCustomTo] = useState(value.dateTo ?? "");
 
     const activeCount = ADVANCED_KEYS.filter((k) => value[k]).length;
 
@@ -92,10 +98,17 @@ export default function OrderFiltersBar({ value }: { value: OrderFiltersValue })
     };
 
     const clearAdvanced = () => {
-        const patch: Partial<OrderFiltersValue> = {};
+        const patch: Partial<OrderFiltersValue> = { dateTo: undefined };
         ADVANCED_KEYS.forEach((k) => { patch[k] = undefined; });
+        setCustomFrom("");
+        setCustomTo("");
         update(patch);
         setOpen(false);
+    };
+
+    const applyCustomDate = () => {
+        if (!customFrom || !customTo) return;
+        update({ date: undefined, dateFrom: customFrom, dateTo: customTo });
     };
 
     return (
@@ -128,7 +141,33 @@ export default function OrderFiltersBar({ value }: { value: OrderFiltersValue })
 
                         <div className="space-y-2.5">
                             <FilterSelect label="Payment" value={value.payment ?? ""} options={PAYMENT_OPTIONS} onChange={(v) => update({ payment: v || undefined })} />
-                            <FilterSelect label="Date" value={value.date ?? ""} options={DATE_OPTIONS} onChange={(v) => update({ date: v || undefined, dateFrom: undefined, dateTo: undefined })} />
+                            <FilterSelect label="Date" value={value.date ?? ""} options={DATE_OPTIONS} onChange={(v) => { setCustomFrom(""); setCustomTo(""); update({ date: v || undefined, dateFrom: undefined, dateTo: undefined }); }} />
+                            <div>
+                                <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-stone-600">Custom Date Range</label>
+                                <div className="flex items-center gap-1.5">
+                                    <input
+                                        type="date"
+                                        value={customFrom}
+                                        onChange={(e) => setCustomFrom(e.target.value)}
+                                        className="w-full rounded-xl border border-white/10 bg-[#0f0f16] px-2 py-1.5 text-[11.5px] text-stone-200 outline-none focus:border-amber-500/40 [color-scheme:dark]"
+                                    />
+                                    <span className="text-stone-700">–</span>
+                                    <input
+                                        type="date"
+                                        value={customTo}
+                                        onChange={(e) => setCustomTo(e.target.value)}
+                                        className="w-full rounded-xl border border-white/10 bg-[#0f0f16] px-2 py-1.5 text-[11.5px] text-stone-200 outline-none focus:border-amber-500/40 [color-scheme:dark]"
+                                    />
+                                    <button
+                                        type="button"
+                                        disabled={!customFrom || !customTo}
+                                        onClick={applyCustomDate}
+                                        className={`shrink-0 rounded-lg px-2.5 py-1.5 text-[11px] font-bold ${value.dateFrom ? "bg-amber-500/15 text-amber-400" : "text-stone-300 hover:bg-white/[0.06]"} ${(!customFrom || !customTo) ? "opacity-40" : ""}`}
+                                    >
+                                        Go
+                                    </button>
+                                </div>
+                            </div>
                             <FilterSelect label="Refund" value={value.refund ?? ""} options={REFUND_OPTIONS} onChange={(v) => update({ refund: v || undefined })} />
                             <FilterSelect label="Promotion" value={value.promotion ?? ""} options={PROMOTION_OPTIONS} onChange={(v) => update({ promotion: v || undefined })} />
                             <FilterSelect label="Loyalty" value={value.loyalty ?? ""} options={LOYALTY_OPTIONS} onChange={(v) => update({ loyalty: v || undefined })} />

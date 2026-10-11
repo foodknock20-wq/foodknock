@@ -33,6 +33,7 @@ import {
 } from "./OrderStatusBadge";
 import CancelOrderModal from "./CancelOrderModal";
 import type { OrderFiltersValue } from "./OrderFiltersBar";
+import { formatINR } from "@/lib/analyticsFormat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -163,10 +164,11 @@ function OrderDesktopRow(props: RowActionProps) {
     return (
         <tr className={`group transition-colors ${isNew ? "bg-amber-500/[0.06]" : "hover:bg-white/[0.02]"}`}>
             <td className="px-4 py-3">
-                <div className="flex items-center gap-2">
-                    <span className="font-mono text-[12.5px] font-bold text-stone-100">{order.orderId}</span>
+                <div className="flex items-center gap-1.5">
+                    <p className="truncate text-[13px] font-bold text-stone-100 max-w-[160px]">{order.customerName}</p>
                     {isNew && <Bell size={10} className="text-amber-400" />}
                 </div>
+                <p className="text-[11px] text-stone-500">{order.phone}</p>
                 {order.orderType === "pickup" && (
                     <span className="mt-0.5 inline-block rounded-full border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-sky-300">
                         Pickup
@@ -174,15 +176,18 @@ function OrderDesktopRow(props: RowActionProps) {
                 )}
             </td>
             <td className="px-4 py-3">
-                <p className="truncate text-[12.5px] font-semibold text-stone-200 max-w-[160px]">{order.customerName}</p>
-                <p className="text-[11px] text-stone-500">{order.phone}</p>
+                {/* Order ID — secondary/muted, but always the FULL id, never
+                    truncated: still the operational reference for payment
+                    reconciliation and support lookups, just not the lead
+                    visual element (see Phase 2 Orders UX brief). */}
+                <span className="font-mono text-[11px] text-stone-500">{order.orderId}</span>
             </td>
             <td className="px-4 py-3">
                 <p className="truncate text-[12px] text-stone-400 max-w-[200px]">{itemsSummary(order.items)}</p>
                 <IndicatorIcons order={order} />
             </td>
             <td className="px-4 py-3">
-                <span className="font-mono text-[13px] font-bold text-stone-100">₹{order.totalAmount.toLocaleString("en-IN")}</span>
+                <span className="font-mono text-[13px] font-bold text-stone-100">{formatINR(order.totalAmount)}</span>
             </td>
             <td className="px-4 py-3">
                 <span className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10px] font-bold uppercase text-stone-300">
@@ -214,18 +219,19 @@ function OrderMobileCard(props: RowActionProps) {
             <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                     <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[12.5px] font-bold text-stone-100">{order.orderId}</span>
+                        <p className="truncate text-[13px] font-bold text-stone-100">{order.customerName}</p>
                         {isNew && <Bell size={10} className="text-amber-400" />}
                     </div>
-                    <p className="mt-0.5 truncate text-[12px] font-semibold text-stone-200">{order.customerName}</p>
                     <p className="text-[11px] text-stone-500">{order.phone} · {shortTime(order.createdAt)}</p>
+                    {/* Order ID — secondary/muted, full id always visible. */}
+                    <p className="mt-0.5 font-mono text-[10.5px] text-stone-600">{order.orderId}</p>
                 </div>
                 <OrderStatusBadge status={order.status} />
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2">
                 <p className="truncate text-[11.5px] text-stone-400">{itemsSummary(order.items)}</p>
-                <span className="shrink-0 font-mono text-[13px] font-bold text-stone-100">₹{order.totalAmount.toLocaleString("en-IN")}</span>
+                <span className="shrink-0 font-mono text-[13px] font-bold text-stone-100">{formatINR(order.totalAmount)}</span>
             </div>
             <IndicatorIcons order={order} />
 
@@ -304,7 +310,7 @@ export default function OrderTable({ orders, statusCountMap, attentionCount, fil
                                 </div>
                                 <div>
                                     <p className="text-[13px] font-black text-white">New Order 🔥</p>
-                                    <p className="text-[11px] text-stone-400">{o.customerName} · ₹{o.totalAmount}</p>
+                                    <p className="text-[11px] text-stone-400">{o.customerName} · {formatINR(o.totalAmount)}</p>
                                 </div>
                             </div>
                         ),
@@ -468,7 +474,7 @@ export default function OrderTable({ orders, statusCountMap, attentionCount, fil
                         <table className="w-full min-w-[820px] text-sm">
                             <thead>
                                 <tr className="border-b border-white/[0.06] bg-white/[0.02]">
-                                    {["Order", "Customer", "Items", "Total", "Payment", "Status", "Time", "Actions"].map((h) => (
+                                    {["Customer", "Order ID", "Items", "Total", "Payment", "Status", "Time", "Actions"].map((h) => (
                                         <th key={h} className="px-4 py-2.5 text-left text-[9.5px] font-black uppercase tracking-[0.18em] text-stone-500 whitespace-nowrap">
                                             {h}
                                         </th>

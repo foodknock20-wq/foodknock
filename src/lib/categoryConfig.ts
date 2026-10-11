@@ -39,6 +39,21 @@ export const CAT_CONFIG: Record<string, CategoryDisplayConfig> = {
         accent: "#f97316",
         label: "Special Pizza",
     },
+    // Real catalog pizza-size categories (confirmed live Product.category
+    // values — see src/lib/categoryOrder.ts's header for the audit that
+    // found these) — distinct from "pizza"/"special pizza" above, each
+    // with its own assigned Cloudinary thumbnail rather than falling back
+    // to FALLBACK_IMAGE.
+    "large pizza": {
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/f_auto,q_auto:eco,fl_progressive,dpr_auto,w_400,c_limit/v1773931427/foodknock/products/h6tiuttc407ijbsl4qne.jpg",
+        accent: "#f97316",
+        label: "Large Pizza",
+    },
+    "regular pizza": {
+        image: "https://res.cloudinary.com/dr3usvmyr/image/upload/f_auto,q_auto:eco,fl_progressive,dpr_auto,w_400,c_limit/v1773931370/foodknock/products/rjtdn8meyrryah0x8au6.jpg",
+        accent: "#f97316",
+        label: "Regular pizza",
+    },
     burger: {
         image: "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773925722/foodknock/products/ochghfubzkruolrb4ggu.jpg",
         accent: "#d97706",
@@ -124,5 +139,9 @@ export const CAT_CONFIG: Record<string, CategoryDisplayConfig> = {
 export const FALLBACK_IMAGE =
     "https://res.cloudinary.com/dr3usvmyr/image/upload/v1773953868/WhatsApp_Image_2026-03-15_at_13.17.10-removebg-preview_ksiduq.png";
 
+// .trim() added so a category name with incidental leading/trailing
+// whitespace (e.g. an admin rename that left a stray space) still resolves
+// to its configured thumbnail instead of silently falling back — the
+// lookup key is normalized, CAT_CONFIG's own keys/labels are untouched.
 export const getCfg = (cat: string): CategoryDisplayConfig =>
-    CAT_CONFIG[cat.toLowerCase()] ?? { image: FALLBACK_IMAGE, accent: "#f97316", label: cat };
+    CAT_CONFIG[cat.trim().toLowerCase()] ?? { image: FALLBACK_IMAGE, accent: "#f97316", label: cat };

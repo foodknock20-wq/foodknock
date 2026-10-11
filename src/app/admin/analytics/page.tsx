@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { resolveAnalyticsRange, percentChange, isValidRangeKey, type AnalyticsRangeKey } from "@/lib/analyticsDateRange";
 import { getAnalyticsData } from "@/lib/adminAnalytics";
-import { formatINR, formatCompactINR, formatNumber, formatRate } from "@/lib/analyticsFormat";
+import { formatINR, formatNumber, formatRate } from "@/lib/analyticsFormat";
 import AnalyticsDateRangeBar from "@/components/admin/analytics/AnalyticsDateRangeBar";
 import AnalyticsSection from "@/components/admin/analytics/AnalyticsSection";
 import AdminPageHeader from "@/components/admin/shared/AdminPageHeader";
@@ -56,6 +56,16 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
     const revenueTrend = data.trend.map((t) => ({ bucketStart: t.bucketStart, value: t.revenue }));
     const ordersTrend = data.trend.map((t) => ({ bucketStart: t.bucketStart, value: t.orders }));
 
+    // Phase 1 Revenue Accuracy — Step 3 requires the chosen trend-chart
+    // granularity to be VISIBLE, not just silently applied (this matters
+    // most for "custom" ranges, where resolveAnalyticsRange() picks
+    // hour/day/month based on span length and the admin otherwise has no
+    // way to tell which one was used).
+    const BUCKET_GRANULARITY_LABEL: Record<typeof range.bucket, string> = {
+        hour: "Hourly", day: "Daily", week: "Weekly", month: "Monthly",
+    };
+    const granularityLabel = BUCKET_GRANULARITY_LABEL[range.bucket];
+
     const outcomeColors: Record<string, string> = {
         received: "#fbbf24", preparing: "#38bdf8", out_for_delivery: "#a78bfa",
         delivered: "#34d399", cancelled: "#fb7185",
@@ -66,7 +76,7 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
             <AdminPageHeader
                 icon={BarChart3}
                 title="Analytics"
-                description={`${range.label} · compared against the preceding equal-length period`}
+                description={`${range.label} · ${granularityLabel} trend buckets · compared against the preceding equal-length period`}
             />
 
             <AnalyticsDateRangeBar activeRange={rangeKey} from={str(sp.from)} to={str(sp.to)} />
@@ -76,14 +86,14 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                 <KpiCard label="Orders" value={formatNumber(current.totalOrders)} icon={ShoppingBag}
                     description="All orders created in this period, including cancelled. Excludes archived orders."
                     comparisonPct={ordersChange.pct} comparisonDirection={ordersChange.direction} />
-                <KpiCard label="Revenue" value={formatCompactINR(current.revenue)} icon={IndianRupee}
+                <KpiCard label="Revenue" value={formatINR(current.revenue)} icon={IndianRupee}
                     description="Final totalAmount of non-cancelled orders in this period."
                     comparisonPct={revenueChange.pct} comparisonDirection={revenueChange.direction} />
                 <KpiCard label="AOV" value={formatINR(aov)} icon={Receipt}
                     description="Revenue ÷ non-cancelled order count, same period, same population."
                     comparisonPct={aovChange.pct} comparisonDirection={aovChange.direction} />
                 <KpiCard label="Delivered" value={formatNumber(current.deliveredOrders)} icon={CheckCircle2}
-                    description="Orders created in this period whose current status is 'delivered' (Order Outcome, not a transition log)." />
+                    description={`Orders created in this period whose current status is 'delivered' (Order Outcome, not a transition log). Delivered-order revenue (subset of the broader Revenue KPI above, not a replacement for it): ${formatINR(current.deliveredRevenue)}.`} />
                 <KpiCard label="Cancelled" value={formatNumber(current.cancelledOrders)} icon={XCircle}
                     description={`Orders created in this period with status 'cancelled'. Rate: ${formatRate(cancellationRate)} of all orders.`}
                     comparisonPct={cancelledChange.pct} comparisonDirection={cancelledChange.direction} />
@@ -97,7 +107,7 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
             {/* ── Revenue / Orders trend ── */}
             <div className="grid gap-4 lg:grid-cols-2">
                 <AnalyticsSection title="Revenue Trend" description="Non-cancelled order totalAmount, bucketed in Asia/Kolkata time.">
-                    <TrendChart points={revenueTrend} color="#34d399" valueFormat={formatCompactINR} bucket={range.bucket} emptyLabel="No revenue in this period" />
+                    <TrendChart points={revenueTrend} color="#34d399" valueFormat={formatINR} bucket={range.bucket} emptyLabel="No revenue in this period" />
                 </AnalyticsSection>
                 <AnalyticsSection title="Orders Trend" description="All orders created, including cancelled, bucketed in Asia/Kolkata time.">
                     <TrendChart points={ordersTrend} color="#f59e0b" valueFormat={formatNumber} bucket={range.bucket} emptyLabel="No orders in this period" />
@@ -129,9 +139,9 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                             value: p.revenue,
                             color: p.method === "cod" ? "#fbbf24" : "#38bdf8",
                         }))}
-                        centerLabel={formatCompactINR(current.revenue)}
+                        centerLabel={formatINR(current.revenue)}
                         centerSub="revenue"
-                        valueFormat={formatCompactINR}
+                        valueFormat={formatINR}
                     />
                 </AnalyticsSection>
             </div>
@@ -141,14 +151,14 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                 <AnalyticsSection title="Top Products" description="By revenue — quantity × historical order-item price, never current Product.price." badge="Top 10">
                     <BarList
                         rows={data.products.topProducts.map((p) => ({ label: p.name, value: p.revenue, sub: p.units }))}
-                        color="#f97316" valueFormat={formatCompactINR} subFormat={(n) => `${formatNumber(n)} units`}
+                        color="#f97316" valueFormat={formatINR} subFormat={(n) => `${formatNumber(n)} units`}
                         emptyLabel="No product sales in this period"
                     />
                 </AnalyticsSection>
                 <AnalyticsSection title="Top Categories" description="Based on each product's CURRENT category — historical recategorization isn't tracked on the order." badge="Top 10">
                     <BarList
                         rows={data.products.topCategories.map((c) => ({ label: c.category, value: c.revenue, sub: c.units }))}
-                        color="#fbbf24" valueFormat={formatCompactINR} subFormat={(n) => `${formatNumber(n)} units`}
+                        color="#fbbf24" valueFormat={formatINR} subFormat={(n) => `${formatNumber(n)} units`}
                         emptyLabel="No category data in this period"
                     />
                 </AnalyticsSection>
@@ -203,14 +213,14 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                 <AnalyticsSection title="Top Coupons" description="Discount amount redeemed via coupon code, non-cancelled orders." badge="Top 10">
                     <BarList
                         rows={data.promotions.topCoupons.map((c) => ({ label: c.code, value: c.discount, sub: c.orders }))}
-                        color="#f59e0b" valueFormat={formatCompactINR} subFormat={(n) => `${formatNumber(n)} orders`}
+                        color="#f59e0b" valueFormat={formatINR} subFormat={(n) => `${formatNumber(n)} orders`}
                         emptyLabel="No coupon redemptions in this period"
                     />
                 </AnalyticsSection>
                 <AnalyticsSection title="Top Offers" description="Automatic campaign offers — discount amount applied, non-cancelled orders." badge="Top 10">
                     <BarList
                         rows={data.promotions.topOffers.map((o) => ({ label: o.name, value: o.discount, sub: o.orders }))}
-                        color="#a78bfa" valueFormat={formatCompactINR} subFormat={(n) => `${formatNumber(n)} orders`}
+                        color="#a78bfa" valueFormat={formatINR} subFormat={(n) => `${formatNumber(n)} orders`}
                         emptyLabel="No offer usage in this period"
                     />
                 </AnalyticsSection>
@@ -237,8 +247,8 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                                     <tr key={c.campaignId}>
                                         <td className="py-2 font-bold text-stone-300">{c.name}</td>
                                         <td className="py-2 text-right font-mono text-stone-400">{formatNumber(c.orders)}</td>
-                                        <td className="py-2 text-right font-mono text-emerald-400">{formatCompactINR(c.revenue)}</td>
-                                        <td className="py-2 text-right font-mono text-rose-400">{formatCompactINR(c.discount)}</td>
+                                        <td className="py-2 text-right font-mono text-emerald-400">{formatINR(c.revenue)}</td>
+                                        <td className="py-2 text-right font-mono text-rose-400">{formatINR(c.discount)}</td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -252,15 +262,15 @@ export default async function AdminAnalyticsPage({ searchParams }: { searchParam
                 <div className="grid grid-cols-3 gap-3">
                     <div className="rounded-xl border border-amber-500/15 bg-amber-500/6 px-4 py-3">
                         <p className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-stone-600"><Tag size={10} />Coupon</p>
-                        <p className="mt-1 font-mono text-base font-black text-amber-400">{formatCompactINR(current.couponDiscount)}</p>
+                        <p className="mt-1 font-mono text-base font-black text-amber-400">{formatINR(current.couponDiscount)}</p>
                     </div>
                     <div className="rounded-xl border border-violet-500/15 bg-violet-500/6 px-4 py-3">
                         <p className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-stone-600"><Percent size={10} />Offer</p>
-                        <p className="mt-1 font-mono text-base font-black text-violet-400">{formatCompactINR(current.offerDiscount)}</p>
+                        <p className="mt-1 font-mono text-base font-black text-violet-400">{formatINR(current.offerDiscount)}</p>
                     </div>
                     <div className="rounded-xl border border-sky-500/15 bg-sky-500/6 px-4 py-3">
                         <p className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-stone-600"><Gift size={10} />Loyalty Redeemed</p>
-                        <p className="mt-1 font-mono text-base font-black text-sky-400">{formatCompactINR(current.loyaltyRedemptionValue)}</p>
+                        <p className="mt-1 font-mono text-base font-black text-sky-400">{formatINR(current.loyaltyRedemptionValue)}</p>
                     </div>
                 </div>
             </AnalyticsSection>

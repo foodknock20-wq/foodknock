@@ -36,6 +36,7 @@ import OrderFiltersBar, { type OrderFiltersValue } from "@/components/admin/orde
 import AdminPageHeader from "@/components/admin/shared/AdminPageHeader";
 import { parseAdminPagination, buildPaginationMeta } from "@/lib/adminPagination";
 import { STUCK_ORDER_THRESHOLDS_MS } from "@/lib/constants";
+import { resolveAnalyticsRange, isValidRangeKey, type AnalyticsRangeKey } from "@/lib/analyticsDateRange";
 import { ShoppingBag } from "lucide-react";
 
 type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
@@ -61,30 +62,28 @@ function attentionOrConditions(now: Date) {
     ];
 }
 
-function dateRangeFromKey(key: string | undefined, from?: string, to?: string): { $gte?: Date; $lte?: Date } | null {
+// Phase 2 fix — previously built boundaries with `new Date(now.getFullYear(),
+// now.getMonth(), now.getDate())` and `new Date(`${from}T00:00:00`)`, both of
+// which resolve in the SERVER's local timezone. On Vercel that's UTC, so
+// "Today" and a custom from/to date were silently off by up to 5.5 hours —
+// exactly the kind of boundary bug the brief asks to fix, and exactly the
+// bug Phase 1 already solved once for the Analytics Center
+// (src/lib/analyticsDateRange.ts's resolveAnalyticsRange). Reusing that
+// EXISTING, already-exported helper here (no edit to that file) keeps this
+// Kolkata-correct and avoids a second, competing timezone implementation.
+// Returns an exclusive `$lt` upper bound rather than `$lte: 23:59:59.999` —
+// same reasoning as analyticsDateRange.ts: avoids any millisecond-precision
+// edge case at the boundary while still covering the full calendar day.
+function dateRangeFromKey(key: string | undefined, from?: string, to?: string): { $gte: Date; $lt: Date } | null {
     if (from || to) {
-        const range: { $gte?: Date; $lte?: Date } = {};
-        if (from) range.$gte = new Date(`${from}T00:00:00`);
-        if (to) range.$lte = new Date(`${to}T23:59:59.999`);
-        return range;
+        const range = resolveAnalyticsRange("custom", from, to);
+        return { $gte: range.start, $lt: range.end };
     }
-    if (!key || key === "all") return null;
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    switch (key) {
-        case "today":
-            return { $gte: startOfToday };
-        case "yesterday": {
-            const y = new Date(startOfToday.getTime() - 86_400_000);
-            return { $gte: y, $lte: new Date(startOfToday.getTime() - 1) };
-        }
-        case "7d":
-            return { $gte: new Date(startOfToday.getTime() - 6 * 86_400_000) };
-        case "30d":
-            return { $gte: new Date(startOfToday.getTime() - 29 * 86_400_000) };
-        default:
-            return null;
+    if (!key || key === "all" || !isValidRangeKey(key) || key === "thisMonth" || key === "lastMonth" || key === "thisYear" || key === "custom") {
+        return null;
     }
+    const range = resolveAnalyticsRange(key as AnalyticsRangeKey);
+    return { $gte: range.start, $lt: range.end };
 }
 
 /** Every filter EXCEPT status/cancellation — the shared base every
@@ -155,33 +154,43 @@ function buildFilter(sp: Resolved, now: Date): Record<string, unknown> {
     return filter;
 }
 
+// Phase 2 — every sort spec now carries a secondary `_id` tie-breaker.
+// Mongo gives no ordering guarantee among rows that tie on the primary key
+// alone (createdAt ties are real — bulk/seeded orders can share a
+// millisecond; totalAmount ties are common for identical-cart orders), so
+// without a unique secondary key, a row sitting exactly on a page boundary
+// could be skipped OR repeated across consecutive pages. `_id` is already
+// unique and monotonically increasing, so pairing it with the primary
+// field's own direction keeps pagination fully deterministic without
+// changing the primary ordering the admin actually asked for.
 function sortSpec(sort: string | undefined): Record<string, 1 | -1> {
     switch (sort) {
-        case "oldest": return { createdAt: 1 };
-        case "highest": return { totalAmount: -1 };
-        case "lowest": return { totalAmount: 1 };
-        default: return { createdAt: -1 };
+        case "oldest": return { createdAt: 1, _id: 1 };
+        case "highest": return { totalAmount: -1, _id: -1 };
+        case "lowest": return { totalAmount: 1, _id: 1 };
+        default: return { createdAt: -1, _id: -1 };
     }
 }
+
+const ORDER_LIST_PROJECTION =
+    "orderId customerName phone address landmark orderType paymentMethod items totalAmount " +
+    "status note whatsappSent createdAt cancellation coupon offer redeemedPoints";
 
 async function getOrders(sp: Resolved) {
     await connectDB();
     const now = new Date();
 
-    const { page, limit, skip } = parseAdminPagination(sp, { defaultLimit: 25, maxLimit: 100 });
+    const { page, limit, skip } = parseAdminPagination(sp, { defaultLimit: 20, maxLimit: 100 });
     const filter = buildFilter(sp, now);
     const baseFilterNoStatus = buildNonStatusFilter(sp);
     const sort = sortSpec(str(sp.sort));
 
-    const [rows, total, statusCounts, attentionCount] = await Promise.all([
+    let [rows, total, statusCounts, attentionCount] = await Promise.all([
         Order.find(filter)
             .sort(sort)
             .skip(skip)
             .limit(limit)
-            .select(
-                "orderId customerName phone address landmark orderType paymentMethod items totalAmount " +
-                "status note whatsappSent createdAt cancellation coupon offer redeemedPoints"
-            )
+            .select(ORDER_LIST_PROJECTION)
             .maxTimeMS(8000)
             .lean(),
         Order.countDocuments(filter),
@@ -193,6 +202,30 @@ async function getOrders(sp: Resolved) {
             $and: [...((baseFilterNoStatus.$and as object[]) ?? []), { $or: attentionOrConditions(now) }],
         }),
     ]);
+
+    // Phase 2 — invalid-page clamp. A stale/direct URL (e.g. the admin was
+    // on page 8, then a filter/search change narrowed the match set to 2
+    // pages) would otherwise request a `skip` past the end of the matching
+    // set: Mongo correctly returns zero rows, but buildPaginationMeta()
+    // below only clamps the DISPLAYED page number — it can't retroactively
+    // fix a query that already ran. Without this, the admin would see an
+    // empty table while the pagination control claims to be on a valid
+    // page. Detected and corrected here with one bounded extra query, only
+    // when it actually happens (the common case — a valid page — pays
+    // nothing extra).
+    let effectivePage = page;
+    if (rows.length === 0 && total > 0 && skip >= total) {
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        effectivePage = totalPages;
+        const correctedSkip = (totalPages - 1) * limit;
+        rows = await Order.find(filter)
+            .sort(sort)
+            .skip(correctedSkip)
+            .limit(limit)
+            .select(ORDER_LIST_PROJECTION)
+            .maxTimeMS(8000)
+            .lean();
+    }
 
     const orders: OrderRow[] = rows.map((o: {
         _id: { toString(): string };
@@ -238,7 +271,7 @@ async function getOrders(sp: Resolved) {
 
     return {
         orders,
-        meta: buildPaginationMeta(total, page, limit),
+        meta: buildPaginationMeta(total, effectivePage, limit),
         statusCountMap,
         attentionCount,
     };
@@ -288,8 +321,9 @@ export default async function AdminOrdersPage({ searchParams }: { searchParams: 
             <Pagination
                 meta={meta}
                 basePath="/admin/orders"
-                searchParams={{ ...filtersValue }}
+                searchParams={{ ...filtersValue, limit: str(sp.limit) }}
                 itemLabel="orders"
+                pageSizeOptions={[20, 50, 100]}
             />
         </div>
     );

@@ -30,6 +30,21 @@ function hrefForPage(basePath: string, searchParams: Record<string, string | und
     return `${basePath}?${params.toString()}`;
 }
 
+// Phase 2 — additive, opt-in page-size control. Only rendered when a
+// caller passes `pageSizeOptions`; every existing caller (Products,
+// Reviews, Users) omits it and renders byte-for-byte as before. Changing
+// the page size always resets to page 1 — the current page number has no
+// defined meaning under a different limit.
+function hrefForLimit(basePath: string, searchParams: Record<string, string | undefined>, limit: number): string {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(searchParams)) {
+        if (value !== undefined && value !== "" && key !== "page" && key !== "limit") params.set(key, value);
+    }
+    params.set("limit", String(limit));
+    params.set("page", "1");
+    return `${basePath}?${params.toString()}`;
+}
+
 /** Compact page-number list: always shows first/last, a window around the current page, and "…" gaps — never renders more than ~7 page links regardless of totalPages. */
 function visiblePages(current: number, total: number): Array<number | "…"> {
     if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -43,11 +58,14 @@ export default function Pagination({
     basePath,
     searchParams,
     itemLabel = "items",
+    pageSizeOptions,
 }: {
     meta: AdminPaginationMeta;
     basePath: string;
     searchParams: Record<string, string | undefined>;
     itemLabel?: string;
+    /** Optional — when provided, renders a page-size selector (e.g. [20, 50, 100]). Omit to keep this component's existing behavior unchanged. */
+    pageSizeOptions?: number[];
 }) {
     const { page, totalPages, total, limit, hasNextPage, hasPreviousPage } = meta;
 
@@ -58,10 +76,30 @@ export default function Pagination({
 
     return (
         <div className="mt-4 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-4 sm:flex-row">
-            <p className="text-[11px] text-stone-600">
-                Showing <span className="font-semibold text-stone-400">{rangeStart}–{rangeEnd}</span> of{" "}
-                <span className="font-semibold text-stone-400">{total}</span> {itemLabel}
-            </p>
+            <div className="flex items-center gap-3">
+                <p className="text-[11px] text-stone-600">
+                    Showing <span className="font-semibold text-stone-400">{rangeStart}–{rangeEnd}</span> of{" "}
+                    <span className="font-semibold text-stone-400">{total}</span> {itemLabel}
+                </p>
+                {pageSizeOptions && pageSizeOptions.length > 0 && (
+                    <div className="flex items-center gap-1 rounded-lg border border-white/[0.06] bg-white/[0.02] p-0.5">
+                        {pageSizeOptions.map((size) => (
+                            <Link
+                                key={size}
+                                href={hrefForLimit(basePath, searchParams, size)}
+                                aria-current={size === limit ? "true" : undefined}
+                                className={`rounded-md px-2 py-1 text-[10.5px] font-bold transition-colors ${
+                                    size === limit
+                                        ? "bg-amber-500/20 text-amber-300"
+                                        : "text-stone-400 hover:bg-white/[0.05] hover:text-stone-100"
+                                }`}
+                            >
+                                {size}
+                            </Link>
+                        ))}
+                    </div>
+                )}
+            </div>
 
             {/* Mobile — compact prev/next, no page-number row (no horizontal overflow) */}
             <div className="flex items-center gap-2 sm:hidden">

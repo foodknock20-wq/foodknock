@@ -16,9 +16,17 @@ import Link from "next/link";
 import type { CategoryWithCount } from "@/lib/catalogCategories";
 import { getCfg } from "@/lib/categoryConfig";
 import CategoryCardShell from "@/components/ui/CategoryCardShell";
+import { sortCategoriesByPriority } from "@/lib/categoryOrder";
 
 export default function CategoryRail({ categories }: { categories: CategoryWithCount[] }) {
     if (categories.length === 0) return null;
+
+    // Phase 3 — same shared priority order /menu's CategorySlider uses
+    // (src/lib/categoryOrder.ts), so the homepage and /menu never disagree
+    // on category order again. `categories` itself (and each {category,
+    // count} entry) is never mutated — this only reorders a derived copy;
+    // real counts/links below are unchanged.
+    const orderedCategories = sortCategoriesByPriority(categories, (c) => c.category);
 
     return (
         <section className="px-4 pt-5 md:px-8">
@@ -26,7 +34,7 @@ export default function CategoryRail({ categories }: { categories: CategoryWithC
                 Browse Categories
             </h2>
             <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
-                {categories.map(({ category, count }) => {
+                {orderedCategories.map(({ category, count }) => {
                     const cfg = getCfg(category);
                     return (
                         <Link key={category} href={`/menu?category=${encodeURIComponent(category)}`} className="shrink-0">

@@ -43,11 +43,12 @@
 //     cost source on a force-dynamic product-grid page.
 //     Expected bandwidth: removes the prefetch RSC payload downloads.
 
-import { ShoppingCart, Plus, Tag, Flame, Star } from "lucide-react";
+import { ShoppingCart, Plus, Minus, Tag, Flame, Star } from "lucide-react";
 import { useState, useMemo, memo } from "react";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
 import { useAddToCart } from "@/hooks/useAddToCart";
+import { useCartStore } from "@/store/cartStore";
 
 type Product = {
     _id: string;
@@ -300,6 +301,57 @@ const AddBtn = memo(function AddBtn({
     );
 });
 
+// Phase 3 — once a product is in the cart, this replaces AddBtn with the
+// same real quantity semantics the homepage rail (ProductRail.tsx +
+// ProductCardShell) already uses: same cartStore.increaseQty/decreaseQty
+// actions, same stock clamp, same "decrease to 0 removes the line"
+// behavior — no separate cart state, no new business logic. Sized/styled
+// to drop into this card's existing AddBtn footprint rather than pulling
+// in ProductCardShell's own (differently-shaped) card chrome.
+const QtyStepper = memo(function QtyStepper({
+    quantity,
+    stock,
+    isCombo,
+    name,
+    onIncrease,
+    onDecrease,
+}: {
+    quantity: number;
+    stock: number;
+    isCombo: boolean;
+    name: string;
+    onIncrease: (e: React.MouseEvent) => void;
+    onDecrease: (e: React.MouseEvent) => void;
+}) {
+    const activeStyle = isCombo ? ADD_BTN_COMBO_ACTIVE : ADD_BTN_REGULAR_ACTIVE;
+    return (
+        <div
+            className="flex shrink-0 items-center overflow-hidden rounded-xl text-white"
+            style={activeStyle}
+            onClick={(e) => e.preventDefault()}
+        >
+            <button
+                type="button"
+                aria-label={`Decrease quantity of ${name}`}
+                onClick={onDecrease}
+                className="flex h-8 w-8 items-center justify-center active:scale-90 sm:h-9 sm:w-9"
+            >
+                <Minus size={13} strokeWidth={2.5} />
+            </button>
+            <span className="min-w-[1.1rem] text-center text-[12px] font-black sm:text-[13px]">{quantity}</span>
+            <button
+                type="button"
+                aria-label={`Increase quantity of ${name}`}
+                disabled={quantity >= stock}
+                onClick={onIncrease}
+                className="flex h-8 w-8 items-center justify-center active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 sm:h-9 sm:w-9"
+            >
+                <Plus size={13} strokeWidth={2.5} />
+            </button>
+        </div>
+    );
+});
+
 // ─── Main export ─────────────────────────────────────────────────────────────
 const ProductCard = memo(function ProductCard({
     product,
@@ -311,6 +363,17 @@ const ProductCard = memo(function ProductCard({
     const { handleAdd: addToCart, addingId } = useAddToCart();
     const unavailable = !product.isAvailable || product.stock <= 0;
     const adding = addingId === product._id;
+
+    // Phase 3 — scoped selector (this product's line only) so each card
+    // only re-renders on its OWN quantity change, not on every cart
+    // mutation elsewhere on the page — same reasoning as
+    // CategorySection.tsx's SectionCard.
+    const quantity = useCartStore((s) => s.items.find((i) => i._id === product._id)?.quantity ?? 0);
+    const increaseQty = useCartStore((s) => s.increaseQty);
+    const decreaseQty = useCartStore((s) => s.decreaseQty);
+    const inCart = quantity > 0 && !unavailable;
+    const handleIncrease = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); increaseQty(product._id); };
+    const handleDecrease = (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); decreaseQty(product._id); };
 
     // React-controlled image src — falls back to FALLBACK_IMG on error (hydration-safe)
     const [imgSrc, setImgSrc] = useState(() => cdnImage(product.image, 400));
@@ -486,13 +549,24 @@ const ProductCard = memo(function ProductCard({
                             price={product.price}
                             compareAtPrice={product.compareAtPrice}
                         />
-                        <AddBtn
-                            unavailable={unavailable}
-                            adding={adding}
-                            isCombo
-                            name={product.name}
-                            onClick={handleAdd}
-                        />
+                        {inCart ? (
+                            <QtyStepper
+                                quantity={quantity}
+                                stock={product.stock}
+                                isCombo
+                                name={product.name}
+                                onIncrease={handleIncrease}
+                                onDecrease={handleDecrease}
+                            />
+                        ) : (
+                            <AddBtn
+                                unavailable={unavailable}
+                                adding={adding}
+                                isCombo
+                                name={product.name}
+                                onClick={handleAdd}
+                            />
+                        )}
                     </div>
                 </div>
             </Link>
@@ -629,17 +703,28 @@ const ProductCard = memo(function ProductCard({
                         price={product.price}
                         compareAtPrice={product.compareAtPrice}
                     />
-                    <AddBtn
-                        unavailable={unavailable}
-                        adding={adding}
-                        isCombo={false}
-                        name={product.name}
-                        onClick={handleAdd}
-                    />
+                    {inCart ? (
+                        <QtyStepper
+                            quantity={quantity}
+                            stock={product.stock}
+                            isCombo={false}
+                            name={product.name}
+                            onIncrease={handleIncrease}
+                            onDecrease={handleDecrease}
+                        />
+                    ) : (
+                        <AddBtn
+                            unavailable={unavailable}
+                            adding={adding}
+                            isCombo={false}
+                            name={product.name}
+                            onClick={handleAdd}
+                        />
+                    )}
                 </div>
             </div>
         </Link>
     );
 });
 
-export default ProductCard;
+export default ProductCard;

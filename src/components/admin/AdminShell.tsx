@@ -36,7 +36,19 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
         // extend body's scrollable height) and is continuously resized by
         // the browser against the live visual viewport — no vh/dvh unit
         // involved, so mobile toolbar show/hide can't create a gap either.
-        <div className="fixed inset-0 flex overflow-hidden bg-[#09090f]">
+        // Contrast audit root cause: this wrapper set the dark admin
+        // BACKGROUND but never set a base text color. src/app/globals.css's
+        // `body { color: #292524 }` is the CUSTOMER light-theme foreground —
+        // any admin element that forgets its own explicit text-color class
+        // was silently inheriting that near-black color on top of this
+        // near-black background (an "inherited foreground resolves to a
+        // dark shade" bug, invisible in code review since every affected
+        // element LOOKS fine — it's just missing a class). `text-stone-200`
+        // matches ADMIN_TEXT (src/lib/adminUi.ts) so anything that already
+        // sets its own color is completely unaffected (an element's own
+        // class always wins over an inherited one); this only fixes
+        // elements that had no color of their own.
+        <div className="fixed inset-0 flex overflow-hidden bg-[#09090f] text-stone-200">
 
             {/* Sidebar */}
             <AdminSidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />

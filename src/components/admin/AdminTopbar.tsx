@@ -56,7 +56,7 @@ export default function AdminTopbar({ onMenuClick }: Props) {
             <div className="flex min-w-0 items-center gap-3">
                 <button
                     onClick={onMenuClick}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] text-stone-500 transition-all duration-200 hover:border-white/10 hover:bg-white/[0.05] hover:text-white md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/[0.07] text-stone-300 transition-all duration-200 hover:border-white/10 hover:bg-white/[0.05] hover:text-white md:hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     aria-label="Toggle sidebar"
                 >
                     <Menu size={16} strokeWidth={2} />
@@ -110,7 +110,7 @@ export default function AdminTopbar({ onMenuClick }: Props) {
 
                 {/* Notification bell */}
                 <button
-                    className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-stone-500 transition-all duration-200 hover:border-white/10 hover:bg-white/[0.05] hover:text-stone-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                    className="relative flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-stone-300 transition-all duration-200 hover:border-white/10 hover:bg-white/[0.05] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
                     aria-label="Notifications"
                 >
                     <Bell size={14} strokeWidth={2} />

@@ -154,7 +154,7 @@ export default function AdminSidebar({ isOpen, onClose }: Props) {
                     <Link
                         href="/"
                         onClick={onClose}
-                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-500 transition-all duration-200 hover:bg-white/[0.04] hover:text-stone-200"
+                        className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-300 transition-all duration-200 hover:bg-white/[0.04] hover:text-stone-100"
                     >
                         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-stone-300 group-hover:text-stone-100">
                             <Zap size={14} strokeWidth={2} />
@@ -185,9 +185,9 @@ export default function AdminSidebar({ isOpen, onClose }: Props) {
                 <button
                     onClick={handleLogout}
                     disabled={loggingOut}
-                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-500 transition-all duration-200 hover:bg-red-500/8 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-inset disabled:opacity-50"
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-stone-300 transition-all duration-200 hover:bg-red-500/8 hover:text-red-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400 focus-visible:ring-inset disabled:opacity-50"
                 >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-stone-600">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-stone-300">
                         <LogOut size={14} strokeWidth={2} />
                     </span>
                     {loggingOut ? "Logging out…" : "Logout"}

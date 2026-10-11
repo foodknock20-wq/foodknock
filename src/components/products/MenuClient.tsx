@@ -48,6 +48,7 @@ import MenuSort, { type MenuSortOption } from "./MenuSort";
 import RecentSearches, { recordRecentSearch } from "./RecentSearches";
 import { cn } from "@/lib/utils";
 import { DELIVERY_TIME_ESTIMATE } from "@/lib/businessHours";
+import { sortCategoriesByPriority } from "@/lib/categoryOrder";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type Product = {
@@ -57,11 +58,13 @@ type Product = {
 };
 
 // ─── Category display order ─────────────────────────────────────────────────
-const CATEGORY_ORDER = [
-    "Combos", "Pizza", "Special Pizza", "Burger", "Sandwich", "Momos", "Pasta",
-    "Noodles", "Maggi", "Chinese", "Pavbhaji", "Patties", "Fries",
-    "Snacks", "Shake", "Juice", "Coffee", "Tea", "Ice Cream", "Thali",
-];
+// Phase 3 — the priority list + sorting logic that used to live here
+// (CATEGORY_ORDER + inline ordered/rest split) moved to the shared
+// src/lib/categoryOrder.ts so the homepage category rail can use the exact
+// same order instead of its own, independently-derived one. Behavior here
+// is unchanged: "All" is always first, every other real category follows
+// in the shared priority order, unknown categories still appear
+// (alphabetically, after every listed one).
 
 // PERF: excluded from generic category sections — checked by lowercase string
 const SECTION_EXCLUDED = new Set(["all", "combos", "ice cream", "thali"]);
@@ -71,13 +74,7 @@ const normalize = (cat: string) =>
 
 function sortCats(cats: string[]): string[] {
     const noAll = cats.filter(c => c !== "All");
-    const ordered = CATEGORY_ORDER.filter(o =>
-        noAll.some(c => c.toLowerCase() === o.toLowerCase())
-    );
-    const rest = noAll
-        .filter(c => !CATEGORY_ORDER.some(o => o.toLowerCase() === c.toLowerCase()))
-        .sort();
-    return ["All", ...ordered, ...rest];
+    return ["All", ...sortCategoriesByPriority(noAll, (c) => c)];
 }
 
 // PERF: pure top-picks filter — lives outside component, called once in useMemo

@@ -11,10 +11,11 @@
 // NEW FEATURE: section wraps with id="section-{category-slug}" for smart URL navigation
 
 import { useRef, useCallback, memo } from "react";
-import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ArrowRight, Minus, Plus } from "lucide-react";
 import Link from "next/link";
 import { cdnImage } from "@/lib/cdnImage";
 import { useAddToCart } from "@/hooks/useAddToCart";
+import { useCartStore } from "@/store/cartStore";
 
 type Product = {
     _id: string; name: string; slug: string; description: string;
@@ -65,6 +66,16 @@ const SectionCard = memo(function SectionCard({
     product: Product; sectionIndex: number; cardIndex: number;
 }) {
     const { handleAdd: addToCart } = useAddToCart();
+    // Phase 3 — same real cart-quantity stepper the homepage rail
+    // (src/components/home/ProductRail.tsx) already uses, reusing the
+    // exact same cartStore actions (no new/duplicated cart logic). Scoped
+    // selector (looks up only this product's line) so each card only
+    // re-renders when ITS OWN quantity changes, not on every cart mutation
+    // elsewhere on the page — important here since a category section can
+    // render many cards at once.
+    const quantity = useCartStore((s) => s.items.find((i) => i._id === product._id)?.quantity ?? 0);
+    const increaseQty = useCartStore((s) => s.increaseQty);
+    const decreaseQty = useCartStore((s) => s.decreaseQty);
     const unavailable = !product.isAvailable || product.stock <= 0;
     const meta = getMeta(product.category);
 
@@ -148,22 +159,67 @@ const SectionCard = memo(function SectionCard({
                     )}
                 </div>
 
-                <button
-                    onClick={handleAdd}
-                    disabled={unavailable}
-                    style={{
-                        touchAction: "auto",
-                        ...(!unavailable ? {
+                {/* Phase 3 — once in the cart, show the same real
+                    quantity stepper used on the homepage (ProductRail.tsx
+                    + ProductCardShell), driven by the SAME cartStore
+                    actions (increaseQty/decreaseQty) — no separate cart
+                    state, no new business logic. Reverts to the existing
+                    "+ Add"/"Sold Out" button when quantity is 0. */}
+                {quantity > 0 && !unavailable ? (
+                    <div
+                        className="mt-auto flex w-full items-center justify-between rounded-xl py-1 text-white sm:mt-2"
+                        style={{
+                            touchAction: "auto",
                             background: `linear-gradient(135deg,${meta.accent},${meta.accent}cc)`,
                             boxShadow: `0 3px 12px ${meta.accent}35`,
-                        } : {}),
-                    }}
-                    className={`mt-auto flex w-full items-center justify-center gap-1 rounded-xl py-2 text-[11px] font-black transition-all duration-200 sm:mt-2 sm:gap-1.5 sm:text-[12px] ${unavailable
-                        ? "cursor-not-allowed bg-fk-surface-interactive text-fk-text-tertiary"
-                        : "text-white active:scale-95 hover:brightness-110"
-                        }`}>
-                    {unavailable ? "Sold Out" : "+ Add"}
-                </button>
+                        }}
+                        onClick={(e) => e.preventDefault()}
+                    >
+                        <button
+                            type="button"
+                            aria-label={`Decrease quantity of ${product.name}`}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                decreaseQty(product._id);
+                            }}
+                            className="flex h-7 w-8 items-center justify-center active:scale-90"
+                        >
+                            <Minus size={13} strokeWidth={2.5} />
+                        </button>
+                        <span className="min-w-[1.25rem] text-center text-[12px] font-black">{quantity}</span>
+                        <button
+                            type="button"
+                            aria-label={`Increase quantity of ${product.name}`}
+                            disabled={quantity >= product.stock}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                increaseQty(product._id);
+                            }}
+                            className="flex h-7 w-8 items-center justify-center active:scale-90 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <Plus size={13} strokeWidth={2.5} />
+                        </button>
+                    </div>
+                ) : (
+                    <button
+                        onClick={handleAdd}
+                        disabled={unavailable}
+                        style={{
+                            touchAction: "auto",
+                            ...(!unavailable ? {
+                                background: `linear-gradient(135deg,${meta.accent},${meta.accent}cc)`,
+                                boxShadow: `0 3px 12px ${meta.accent}35`,
+                            } : {}),
+                        }}
+                        className={`mt-auto flex w-full items-center justify-center gap-1 rounded-xl py-2 text-[11px] font-black transition-all duration-200 sm:mt-2 sm:gap-1.5 sm:text-[12px] ${unavailable
+                            ? "cursor-not-allowed bg-fk-surface-interactive text-fk-text-tertiary"
+                            : "text-white active:scale-95 hover:brightness-110"
+                            }`}>
+                        {unavailable ? "Sold Out" : "+ Add"}
+                    </button>
+                )}
             </div>
         </Link>
     );
