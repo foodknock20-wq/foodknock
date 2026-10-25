@@ -54,62 +54,96 @@ async function makeUser() {
     });
 }
 
-// ── POST /api/reviews — open, anonymous submission, never auto-published ──
+// ── POST /api/reviews — login-only submission, published instantly ────────
 
-test("real POST /api/reviews: a valid submission is created but NOT approved (requires admin moderation)", async () => {
+async function userToken(name = "U") {
+    const user = await User.create({
+        name, email: `u${Date.now()}${Math.random()}@example.test`,
+        phone: "9999999999", password: "hashed", role: "user", isActive: true,
+    });
+    return signToken({ userId: String(user._id), email: user.email, role: "user" });
+}
+
+test("real POST /api/reviews: a logged-out visitor cannot submit (401), and nothing is persisted", async () => {
     const res = await POST(req("https://foodknock.test/api/reviews", {
         method: "POST",
         body: JSON.stringify({ userName: "Alice", rating: 5, comment: "Great food, fast delivery!" }),
     }) as unknown as NextRequest);
+    assert.equal(res.status, 401, "an unauthenticated submission must be rejected");
+    assert.equal(await Review.countDocuments({}), 0, "no review may be created by a logged-out caller");
+});
+
+test("real POST /api/reviews: a logged-in user's valid submission is created and immediately visible", async () => {
+    const token = await userToken("Alice");
+    const res = await POST(req("https://foodknock.test/api/reviews", {
+        method: "POST",
+        body: JSON.stringify({ rating: 5, comment: "Great food, fast delivery!" }),
+    }, token) as unknown as NextRequest);
     assert.equal(res.status, 201);
     const body = await res.json();
     assert.equal(body.success, true);
-    assert.equal(body.review.isApproved, false, "a brand-new review must never be auto-published (Phase 17.2 F5)");
+    assert.equal(body.review.isApproved, true, "a valid review must be visible immediately — no approval gate");
+    assert.equal(body.review.userName, "Alice", "the author name must come from the account");
+
+    // ...and it shows up on the public list right away.
+    const listRes = await GET(req("https://foodknock.test/api/reviews") as unknown as NextRequest);
+    const listBody = await listRes.json();
+    assert.equal(listBody.reviews.length, 1);
+    assert.equal(listBody.reviews[0].userName, "Alice");
+});
+
+test("real POST /api/reviews: client-supplied userName and isApproved are ignored (server owns identity + visibility)", async () => {
+    const token = await userToken("Alice");
+    const res = await POST(req("https://foodknock.test/api/reviews", {
+        method: "POST",
+        body: JSON.stringify({ userName: "Mallory", rating: 5, comment: "Trying to impersonate + self-hide.", isApproved: false }),
+    }, token) as unknown as NextRequest);
+    assert.equal(res.status, 201);
+    const body = await res.json();
+    assert.equal(body.review.userName, "Alice", "a submitter must not be able to set the author name via the body");
+    assert.equal(body.review.isApproved, true, "a submitter must not be able to set visibility via the body");
 });
 
 test("real POST /api/reviews: missing/invalid fields are rejected with 400", async () => {
-    const noName = await POST(req("https://foodknock.test/api/reviews", {
-        method: "POST", body: JSON.stringify({ rating: 5, comment: "Great food, fast delivery!" }),
-    }) as unknown as NextRequest);
-    assert.equal(noName.status, 400);
-
+    const token = await userToken();
     const badRating = await POST(req("https://foodknock.test/api/reviews", {
-        method: "POST", body: JSON.stringify({ userName: "A", rating: 9, comment: "Great food, fast delivery!" }),
-    }) as unknown as NextRequest);
+        method: "POST", body: JSON.stringify({ rating: 9, comment: "Great food, fast delivery!" }),
+    }, token) as unknown as NextRequest);
     assert.equal(badRating.status, 400);
 
     const shortComment = await POST(req("https://foodknock.test/api/reviews", {
-        method: "POST", body: JSON.stringify({ userName: "A", rating: 5, comment: "short" }),
-    }) as unknown as NextRequest);
+        method: "POST", body: JSON.stringify({ rating: 5, comment: "short" }),
+    }, token) as unknown as NextRequest);
     assert.equal(shortComment.status, 400);
 });
 
 test("real POST /api/reviews: an 11th submission from the same IP within the window is rate-limited", async () => {
+    const token = await userToken();
     for (let i = 0; i < 10; i++) {
         const res = await POST(req("https://foodknock.test/api/reviews", {
-            method: "POST", body: JSON.stringify({ userName: `U${i}`, rating: 5, comment: "Great food, fast delivery!" }),
-        }) as unknown as NextRequest);
+            method: "POST", body: JSON.stringify({ rating: 5, comment: "Great food, fast delivery!" }),
+        }, token) as unknown as NextRequest);
         assert.equal(res.status, 201);
     }
     const eleventh = await POST(req("https://foodknock.test/api/reviews", {
-        method: "POST", body: JSON.stringify({ userName: "U10", rating: 5, comment: "Great food, fast delivery!" }),
-    }) as unknown as NextRequest);
+        method: "POST", body: JSON.stringify({ rating: 5, comment: "Great food, fast delivery!" }),
+    }, token) as unknown as NextRequest);
     assert.equal(eleventh.status, 429, "the 11th submission from the same IP within the hour must be rate-limited");
 });
 
-// ── GET /api/reviews — public, status-filterable ──────────────────────────
+// ── GET /api/reviews — public, visible-only (hidden reviews never leak) ────
 
-test("real GET /api/reviews: status=approved never returns an unapproved review", async () => {
-    await Review.create({ userName: "Pending", rating: 4, comment: "Not yet approved, long enough.", isApproved: false });
-    await Review.create({ userName: "Live", rating: 5, comment: "Already approved, long enough.", isApproved: true });
+test("real GET /api/reviews: the public endpoint never returns a hidden review", async () => {
+    await Review.create({ userName: "Hidden", rating: 4, comment: "Admin-hidden review, long enough.", isApproved: false });
+    await Review.create({ userName: "Live", rating: 5, comment: "Visible review, long enough.", isApproved: true });
 
-    const res = await GET(req("https://foodknock.test/api/reviews?status=approved") as unknown as NextRequest);
+    const res = await GET(req("https://foodknock.test/api/reviews") as unknown as NextRequest);
     const body = await res.json();
     assert.equal(body.reviews.length, 1);
     assert.equal(body.reviews[0].userName, "Live");
 });
 
-// ── PATCH /api/reviews/[id] — admin-only moderation ────────────────────────
+// ── PATCH /api/reviews/[id] — admin-only hide/unhide ───────────────────────
 
 test("real PATCH /api/reviews/[id]: unauthenticated moderation attempt is rejected", async () => {
     const review = await Review.create({ userName: "X", rating: 3, comment: "Needs moderation, long enough text.", isApproved: false });
@@ -134,19 +168,27 @@ test("real PATCH /api/reviews/[id]: a non-admin user's moderation attempt is rej
     assert.equal(res.status, 403);
 });
 
-test("real PATCH /api/reviews/[id]: an admin can approve a review, and it then appears in status=approved", async () => {
+test("real PATCH /api/reviews/[id]: an admin can hide a visible review, then unhide it", async () => {
     const admin = await makeAdmin();
     const token = signToken({ userId: String(admin._id), email: admin.email, role: "admin" });
-    const review = await Review.create({ userName: "X", rating: 3, comment: "Needs moderation, long enough text.", isApproved: false });
+    const review = await Review.create({ userName: "X", rating: 3, comment: "Visible, long enough text.", isApproved: true });
 
-    const res = await PATCH(
+    // Hide it — it should drop off the public list.
+    const hideRes = await PATCH(
+        req(`https://foodknock.test/api/reviews/${review._id}`, { method: "PATCH", body: JSON.stringify({ isApproved: false }) }, token) as unknown as NextRequest,
+        { params: Promise.resolve({ id: String(review._id) }) }
+    );
+    assert.equal(hideRes.status, 200);
+    let listBody = await (await GET(req("https://foodknock.test/api/reviews") as unknown as NextRequest)).json();
+    assert.equal(listBody.reviews.length, 0, "a hidden review must not appear on the public list");
+
+    // Unhide it — it should come back.
+    const unhideRes = await PATCH(
         req(`https://foodknock.test/api/reviews/${review._id}`, { method: "PATCH", body: JSON.stringify({ isApproved: true }) }, token) as unknown as NextRequest,
         { params: Promise.resolve({ id: String(review._id) }) }
     );
-    assert.equal(res.status, 200);
-
-    const listRes = await GET(req("https://foodknock.test/api/reviews?status=approved") as unknown as NextRequest);
-    const listBody = await listRes.json();
+    assert.equal(unhideRes.status, 200);
+    listBody = await (await GET(req("https://foodknock.test/api/reviews") as unknown as NextRequest)).json();
     assert.equal(listBody.reviews.length, 1);
     assert.equal(listBody.reviews[0]._id, String(review._id));
 });

@@ -238,7 +238,7 @@ function AddReviewModal({ userName, onClose }: { userName: string; onClose: () =
                     </div>
                     <h3 className="text-xl font-black text-fk-text">Thank you! 🎉</h3>
                     <p className="mt-2 text-sm leading-relaxed text-fk-text-secondary">
-                        Your review has been submitted. We truly appreciate your feedback!
+                        Your review is now live on FoodKnock. We truly appreciate your feedback!
                     </p>
                     <button
                         onClick={onClose}

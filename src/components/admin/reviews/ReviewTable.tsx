@@ -7,8 +7,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
 import {
-    MessageSquare, Star, CheckCircle2,
-    XCircle, Trash2, Loader2,
+    MessageSquare, Star, Eye,
+    EyeOff, Trash2, Loader2,
 } from "lucide-react";
 
 // Phase 15A: search + status filter are now server-side (AdminListSearchBar
@@ -51,52 +51,52 @@ function StarRow({ rating }: { rating: number }) {
     );
 }
 
-function ApprovalBadge({ isApproved }: { isApproved: boolean }) {
+function VisibilityBadge({ isApproved }: { isApproved: boolean }) {
     if (isApproved) {
         return (
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-emerald-400">
-                <CheckCircle2 size={9} strokeWidth={3} /> Approved
+                <Eye size={9} strokeWidth={3} /> Visible
             </span>
         );
     }
     return (
-        <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/25 bg-amber-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-amber-400">
-            <XCircle size={9} strokeWidth={3} /> Pending
+        <span className="inline-flex items-center gap-1 rounded-full border border-stone-500/25 bg-stone-500/10 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider text-stone-400">
+            <EyeOff size={9} strokeWidth={3} /> Hidden
         </span>
     );
 }
 
 function ActionButtons({
-    review, onApprove, onUnapprove, onDelete, loadingApprove, loadingDelete,
+    review, onHide, onUnhide, onDelete, loadingVisibility, loadingDelete,
 }: {
-    review:         ReviewRow;
-    onApprove:      () => void;
-    onUnapprove:    () => void;
-    onDelete:       () => void;
-    loadingApprove: boolean;
-    loadingDelete:  boolean;
+    review:            ReviewRow;
+    onHide:            () => void;
+    onUnhide:          () => void;
+    onDelete:          () => void;
+    loadingVisibility: boolean;
+    loadingDelete:     boolean;
 }) {
     return (
         <div className="flex items-center gap-1.5">
             {review.isApproved ? (
                 <button
-                    onClick={onUnapprove}
-                    disabled={loadingApprove}
-                    title="Unapprove"
-                    className="flex items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/8 px-2.5 py-1.5 text-[11px] font-bold text-amber-400 transition-all duration-200 hover:border-amber-500/30 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={onHide}
+                    disabled={loadingVisibility}
+                    title="Hide from customers"
+                    className="flex items-center gap-1.5 rounded-lg border border-stone-500/20 bg-stone-500/8 px-2.5 py-1.5 text-[11px] font-bold text-stone-300 transition-all duration-200 hover:border-stone-500/30 hover:bg-stone-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    {loadingApprove ? <Loader2 size={11} className="animate-spin" /> : <XCircle size={11} />}
-                    <span className="hidden sm:inline">Unapprove</span>
+                    {loadingVisibility ? <Loader2 size={11} className="animate-spin" /> : <EyeOff size={11} />}
+                    <span className="hidden sm:inline">Hide</span>
                 </button>
             ) : (
                 <button
-                    onClick={onApprove}
-                    disabled={loadingApprove}
-                    title="Approve"
+                    onClick={onUnhide}
+                    disabled={loadingVisibility}
+                    title="Make visible to customers"
                     className="flex items-center gap-1.5 rounded-lg border border-emerald-500/20 bg-emerald-500/8 px-2.5 py-1.5 text-[11px] font-bold text-emerald-400 transition-all duration-200 hover:border-emerald-500/30 hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    {loadingApprove ? <Loader2 size={11} className="animate-spin" /> : <CheckCircle2 size={11} />}
-                    <span className="hidden sm:inline">Approve</span>
+                    {loadingVisibility ? <Loader2 size={11} className="animate-spin" /> : <Eye size={11} />}
+                    <span className="hidden sm:inline">Unhide</span>
                 </button>
             )}
 
@@ -119,17 +119,18 @@ export default function ReviewTable({ reviews }: Props) {
     const [loadingId,  setLoadingId]  = useState<string | null>(null);
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
-    const handleToggleApprove = async (review: ReviewRow, approve: boolean) => {
+    // `visible === true` => unhide (make visible); `false` => hide.
+    const handleToggleVisibility = async (review: ReviewRow, visible: boolean) => {
         setLoadingId(review._id);
         try {
             const res  = await fetch(`/api/reviews/${review._id}`, {
                 method:  "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body:    JSON.stringify({ isApproved: approve }),
+                body:    JSON.stringify({ isApproved: visible }),
             });
             const data = await res.json();
             if (!res.ok) { toast.error(data.message ?? "Failed to update review"); return; }
-            toast.success(approve ? "Review approved" : "Review unapproved", {
+            toast.success(visible ? "Review is now visible" : "Review hidden", {
                 style: {
                     background: "#0f0f16", color: "#e7e5e4",
                     border: "1px solid rgba(255,255,255,0.07)",
@@ -214,7 +215,7 @@ export default function ReviewTable({ reviews }: Props) {
                                         </td>
 
                                         {/* Status */}
-                                        <td className="px-4 py-3.5"><ApprovalBadge isApproved={review.isApproved} /></td>
+                                        <td className="px-4 py-3.5"><VisibilityBadge isApproved={review.isApproved} /></td>
 
                                         {/* Date */}
                                         <td className="px-4 py-3.5">
@@ -229,10 +230,10 @@ export default function ReviewTable({ reviews }: Props) {
                                         <td className="px-4 py-3.5">
                                             <ActionButtons
                                                 review={review}
-                                                onApprove={() => handleToggleApprove(review, true)}
-                                                onUnapprove={() => handleToggleApprove(review, false)}
+                                                onHide={() => handleToggleVisibility(review, false)}
+                                                onUnhide={() => handleToggleVisibility(review, true)}
                                                 onDelete={() => handleDelete(review._id, review.userName)}
-                                                loadingApprove={loadingId === review._id}
+                                                loadingVisibility={loadingId === review._id}
                                                 loadingDelete={deletingId === review._id}
                                             />
                                         </td>
@@ -254,7 +255,7 @@ export default function ReviewTable({ reviews }: Props) {
                                             <StarRow rating={review.rating} />
                                         </div>
                                     </div>
-                                    <ApprovalBadge isApproved={review.isApproved} />
+                                    <VisibilityBadge isApproved={review.isApproved} />
                                 </div>
 
                                 <p className="mt-3 text-sm leading-relaxed text-stone-500">
@@ -269,10 +270,10 @@ export default function ReviewTable({ reviews }: Props) {
                                     </span>
                                     <ActionButtons
                                         review={review}
-                                        onApprove={() => handleToggleApprove(review, true)}
-                                        onUnapprove={() => handleToggleApprove(review, false)}
+                                        onHide={() => handleToggleVisibility(review, false)}
+                                        onUnhide={() => handleToggleVisibility(review, true)}
                                         onDelete={() => handleDelete(review._id, review.userName)}
-                                        loadingApprove={loadingId === review._id}
+                                        loadingVisibility={loadingId === review._id}
                                         loadingDelete={deletingId === review._id}
                                     />
                                 </div>

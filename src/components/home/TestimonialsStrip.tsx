@@ -62,7 +62,7 @@ export default function TestimonialsStrip({ reviews }: { reviews: HomeReview[] }
                                 </div>
                                 <div>
                                     <p className="text-sm font-black text-fk-text">{userName}</p>
-                                    <p className="text-[11px] text-fk-text-tertiary">Verified customer</p>
+                                    <p className="text-[11px] text-fk-text-tertiary">FoodKnock customer</p>
                                 </div>
                             </div>
                         </div>

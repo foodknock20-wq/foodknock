@@ -11,10 +11,11 @@ type RouteContext = {
 };
 
 // ── PATCH /api/reviews/[id] ───────────────────────────────────────────────
-// Supports: { isApproved: boolean }
-// PHASE 3: this is the admin moderation action (approve/hide a public
-// review) and previously had NO authorization — any unauthenticated request
-// could approve or hide any review. Admin-only now, server-verified.
+// Supports: { isApproved: boolean }  (true => unhide/visible, false => hide)
+// This is the admin visibility-moderation action (hide/unhide a public
+// review). Admin-only, server-verified — a non-admin (or unauthenticated)
+// caller can never change a review's visibility. Only the `isApproved`
+// field may be toggled here; no arbitrary update object is accepted.
 // (Review documents have no author/ownership field in this schema — there
 // is no "owner" concept to check here, only admin moderation.)
 export async function PATCH(req: NextRequest, context: RouteContext) {

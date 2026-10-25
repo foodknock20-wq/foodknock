@@ -2,12 +2,15 @@ export const dynamic = "force-dynamic";
 
 // src/app/admin/reviews/page.tsx
 //
-// Phase 15A — converted from an unbounded `Review.find()` (no limit at
-// all) to true server-side pagination + search + status filter. The stats
-// strip (Total/Approved/Pending/Avg Rating) is computed via
-// `countDocuments()`/a bounded `$group` aggregation over the WHOLE
-// collection — cheap, bounded output — so it stays accurate regardless of
-// which page is being viewed.
+// Server-side pagination + search + visibility filter. The stats strip
+// (Total/Visible/Hidden/Avg Rating) is computed via `countDocuments()`/a
+// bounded `$group` aggregation over the WHOLE collection — cheap, bounded
+// output — so it stays accurate regardless of which page is being viewed.
+//
+// Reviews publish instantly (no approval gate); admins here only manage
+// visibility. `isApproved` is the visibility flag (true=visible,
+// false=hidden) — see src/models/Review.ts for why the field keeps that
+// name.
 
 import { connectDB } from "@/lib/db";
 import Review from "@/models/Review";
@@ -26,11 +29,11 @@ async function getReviews(searchParams: Awaited<SearchParams>) {
 
     const { page, limit, skip } = parseAdminPagination(searchParams, { defaultLimit: 25, maxLimit: 100 });
     const search = typeof searchParams.search === "string" ? searchParams.search.trim() : "";
-    const status = searchParams.status === "approved" || searchParams.status === "pending" ? searchParams.status : "all";
+    const status = searchParams.status === "visible" || searchParams.status === "hidden" ? searchParams.status : "all";
 
     const filter: Record<string, unknown> = {};
-    if (status === "approved") filter.isApproved = true;
-    if (status === "pending") filter.isApproved = false;
+    if (status === "visible") filter.isApproved = true;
+    if (status === "hidden") filter.isApproved = false;
     if (search) {
         filter.$or = [{ userName: { $regex: search, $options: "i" } }, { comment: { $regex: search, $options: "i" } }];
     }
@@ -70,8 +73,8 @@ async function getReviews(searchParams: Awaited<SearchParams>) {
         meta: buildPaginationMeta(total, page, limit),
         stats: {
             total: agg.total,
-            approved: agg.approved,
-            pending: agg.total - agg.approved,
+            visible: agg.approved,
+            hidden: agg.total - agg.approved,
             avgRating: agg.total > 0 ? (agg.ratingSum / agg.total).toFixed(1) : "—",
         },
     };
@@ -90,15 +93,15 @@ export default async function AdminReviewsPage({ searchParams }: { searchParams:
             <AdminPageHeader
                 icon={MessageSquare}
                 title="Reviews"
-                description={`${stats.total} total review${stats.total !== 1 ? "s" : ""} — moderate customer feedback`}
+                description={`${stats.total} total review${stats.total !== 1 ? "s" : ""} — reviews publish instantly; hide, unhide or delete here`}
             />
 
             {/* ── Stats strip ── */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 {[
                     { label: "Total", value: stats.total, color: "text-white" },
-                    { label: "Approved", value: stats.approved, color: "text-emerald-400" },
-                    { label: "Pending", value: stats.pending, color: stats.pending > 0 ? "text-amber-400" : "text-stone-600" },
+                    { label: "Visible", value: stats.visible, color: "text-emerald-400" },
+                    { label: "Hidden", value: stats.hidden, color: stats.hidden > 0 ? "text-stone-400" : "text-stone-600" },
                     { label: "Avg Rating", value: stats.avgRating, color: "text-amber-400" },
                 ].map(({ label, value, color }) => (
                     <div key={label} className="rounded-xl border border-white/[0.06] bg-[#111118] px-4 py-3">
@@ -108,12 +111,12 @@ export default async function AdminReviewsPage({ searchParams }: { searchParams:
                 ))}
             </div>
 
-            {/* ── Pending alert strip ── */}
-            {stats.pending > 0 && (
-                <div className="rounded-xl border border-amber-500/15 bg-amber-500/5 px-5 py-3">
+            {/* ── Hidden-reviews info strip ── */}
+            {stats.hidden > 0 && (
+                <div className="rounded-xl border border-stone-500/15 bg-stone-500/5 px-5 py-3">
                     <p className="text-xs text-stone-500">
-                        <span className="font-bold text-amber-400">{stats.pending}</span>
-                        {" "}review{stats.pending !== 1 ? "s are" : " is"} awaiting approval — they will not be visible to customers until approved.
+                        <span className="font-bold text-stone-300">{stats.hidden}</span>
+                        {" "}review{stats.hidden !== 1 ? "s are" : " is"} hidden and not visible to customers. Unhide any from the table below.
                     </p>
                 </div>
             )}
@@ -143,8 +146,8 @@ export default async function AdminReviewsPage({ searchParams }: { searchParams:
 function ReviewStatusFilter({ current, search }: { current: string; search?: string }) {
     const options: { value: string; label: string }[] = [
         { value: "all", label: "All Reviews" },
-        { value: "approved", label: "Approved" },
-        { value: "pending", label: "Pending" },
+        { value: "visible", label: "Visible" },
+        { value: "hidden", label: "Hidden" },
     ];
     return (
         <div className="flex shrink-0 gap-1.5">

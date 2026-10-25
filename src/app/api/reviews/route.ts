@@ -1,12 +1,19 @@
 export const dynamic = "force-dynamic";
 
 // src/app/api/reviews/route.ts
-// GET  — returns all approved reviews (public)
-// POST — submit a new review (open, no auth required in API since auth is checked client-side)
+// GET  — returns only publicly-visible reviews (this is an unauthenticated
+//        public endpoint, so it MUST never return hidden reviews, whatever
+//        query params are supplied).
+// POST — submit a new review. Requires a logged-in FoodKnock user
+//        (server-verified); the author name is taken from the trusted
+//        session, never the request body. Successfully submitted reviews
+//        are visible immediately — there is no admin approval gate.
 
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import Review from "@/models/Review";
+import User from "@/models/User";
+import { requireUser } from "@/lib/apiAuth";
 import { isRateLimited, getClientIp } from "@/lib/rateLimit";
 
 // ── GET ───────────────────────────────────────────────────────────────────
@@ -15,12 +22,12 @@ export async function GET(req: NextRequest) {
         await connectDB();
 
         const { searchParams } = new URL(req.url);
-        const status = searchParams.get("status");
         const search = searchParams.get("search")?.trim();
 
-        const query: Record<string, any> = {};
-        if (status === "approved") query.isApproved = true;
-        if (status === "pending")  query.isApproved = false;
+        // Public endpoint: ALWAYS restrict to visible reviews. Hidden
+        // reviews (isApproved:false) must never leak through any public
+        // surface, regardless of request params.
+        const query: Record<string, unknown> = { isApproved: true };
         if (search) {
             query.$or = [
                 { userName: { $regex: search, $options: "i" } },
@@ -43,9 +50,13 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST ──────────────────────────────────────────────────────────────────
-// PHASE 3: open, unauthenticated submission — adds a light per-IP rate
-// limit (10/hour) against spam/abuse without touching the existing
-// "no auth required, checked client-side" design decision.
+// Login-only submission: a review may only be created by an authenticated,
+// server-verified FoodKnock user. The author name comes from that user's
+// account (NOT the request body), so a client cannot impersonate anyone.
+// A light per-IP rate limit (10/hour) still guards against abuse. Only
+// rating/comment are read from the body; any client-supplied userName or
+// moderation field (isApproved, isHidden, verified, etc.) is ignored —
+// identity and visibility are owned entirely by the server.
 export async function POST(req: NextRequest) {
     try {
         const ip = getClientIp(req);
@@ -57,13 +68,32 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        // Require a logged-in, active, server-verified user. A logged-out
+        // visitor can read reviews but can never submit one, even by calling
+        // this endpoint directly.
+        const auth = await requireUser(req);
+        if (!auth) {
+            return NextResponse.json(
+                { success: false, message: "Please sign in to write a review." },
+                { status: 401 }
+            );
+        }
+
         await connectDB();
 
-        const { userName, rating, comment } = await req.json();
-
-        if (!userName?.trim()) {
-            return NextResponse.json({ success: false, message: "Name is required" }, { status: 400 });
+        const account = await User.findById(auth.userId).select("name").lean<{ name?: string } | null>();
+        const userName = account?.name?.trim();
+        if (!userName) {
+            // Authenticated but no usable account name — treat as a server-side
+            // data issue, never fall back to a client-supplied name.
+            return NextResponse.json(
+                { success: false, message: "Your account is missing a display name." },
+                { status: 400 }
+            );
         }
+
+        const { rating, comment } = await req.json();
+
         if (!rating || typeof rating !== "number" || rating < 1 || rating > 5) {
             return NextResponse.json({ success: false, message: "Rating must be 1–5" }, { status: 400 });
         }
@@ -75,16 +105,16 @@ export async function POST(req: NextRequest) {
         }
 
         const review = await Review.create({
-            userName: userName.trim(),
+            userName,                 // from the trusted session, not the body
             rating,
             comment:  comment.trim(),
-            // Phase 17.2 (F5): isApproved now defaults to false — see
-            // Review.ts's header comment. Submission stays open/anonymous;
-            // publication requires admin moderation.
+            // isApproved is intentionally NOT set here — the schema default
+            // (true => visible immediately) applies. Never accept a
+            // visibility value from the request body.
         });
 
         return NextResponse.json(
-            { success: true, message: "Thanks! Your review will appear once approved.", review },
+            { success: true, message: "Thanks for your review! It's now visible on FoodKnock.", review },
             { status: 201 }
         );
     } catch (error) {
