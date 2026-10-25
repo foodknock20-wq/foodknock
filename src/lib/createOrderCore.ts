@@ -72,8 +72,6 @@ import {
 import { sendOrderConfirmationEmail, sendAdminOrderAlertEmail } from "@/lib/mailer";
 import { notificationEngine } from "@/lib/notifications";
 
-import { COD_MAX_ORDER_AMOUNT } from "@/lib/constants";
-
 const REVIEW_REWARD_MIN_SUBTOTAL = 150;
 
 // Phase 10B: this message is sent with parse_mode:"HTML" — Telegram's HTML
@@ -595,10 +593,14 @@ export async function createOrderCore(
     const discountedSubtotal = Math.max(0, subtotal - couponDiscountAmount);
     const grossTotal = discountedSubtotal + deliveryFee + PLATFORM_FEE;
 
-    if (paymentMethod === "cod" && grossTotal >= COD_MAX_ORDER_AMOUNT) {
+    // COD maximum-cap — resolved server-side from DeliverySettings (via
+    // calculateDeliveryPricing above), NOT the old hardcoded constant. Only
+    // ever applied to COD; online/Razorpay orders are unaffected. Authoritative
+    // amount is the discounted grossTotal computed above from server pricing.
+    if (paymentMethod === "cod" && grossTotal >= pricing.codMaxOrderAmount) {
         await rollbackDecrementedStock("cod_cap_exceeded");
         throw Object.assign(
-            new Error(`COD not available above ₹${COD_MAX_ORDER_AMOUNT}`),
+            new Error(`COD is only available for orders below ₹${pricing.codMaxOrderAmount}. Please pay online.`),
             { status: 400 }
         );
     }

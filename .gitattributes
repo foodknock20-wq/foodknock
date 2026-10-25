@@ -1,0 +1,30 @@
+# FoodKnock line-ending policy.
+#
+# Detect text files automatically and keep LF as the normalized convention in
+# Git's index, so CRLF/LF drift across Windows and other environments cannot
+# recur. `eol=lf` sets the working-tree convention for files Git detects as
+# text; this takes precedence over a developer's core.autocrlf setting.
+#
+# NOTE: this establishes the policy only. It does NOT rewrite existing files.
+# Any one-time normalization of already-committed content should be done
+# deliberately and separately (e.g. `git add --renormalize .` in its own
+# commit), never as a side effect — see the audit report.
+* text=auto eol=lf
+
+# ── Confirmed binary assets — never apply text/EOL conversion ───────────────
+# (SVG is intentionally omitted: it is XML text, not binary.)
+*.png   -text
+*.jpg   -text
+*.jpeg  -text
+*.webp  -text
+*.gif   -text
+*.ico   -text
+*.pdf   -text
+*.mp3   -text
+*.mp4   -text
+*.webm  -text
+*.woff  -text
+*.woff2 -text
+*.ttf   -text
+*.otf   -text
+*.eot   -text

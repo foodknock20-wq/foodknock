@@ -144,6 +144,30 @@ export default function DeliverySettingsForm({ initialSettings }: { initialSetti
         }
     }
 
+    // ── Cash on Delivery cap ───────────────────────────────────────────────
+    // Maximum order value (inclusive-exclusive: COD allowed only BELOW this)
+    // — see the model/resolver. Saved independently; patchSettings sends only
+    // this field so no other setting is touched.
+    const [codMax, setCodMax] = useState(settings.orderRules.codMaxOrderAmount);
+    const [codMaxSave, setCodMaxSave] = useState<SaveState>("idle");
+
+    async function saveCodMax() {
+        setCodMaxSave("saving");
+        try {
+            const updated = await patchSettings({ orderRules: { codMaxOrderAmount: codMax } });
+            setSettings(updated);
+            // Use the server-confirmed, normalized value.
+            setCodMax(updated.orderRules.codMaxOrderAmount);
+            setCodMaxSave("saved");
+            toast.success("COD limit saved");
+        } catch (err) {
+            setCodMaxSave("error");
+            toast.error(err instanceof Error ? err.message : "Couldn't save — try again");
+        } finally {
+            setTimeout(() => setCodMaxSave("idle"), 2000);
+        }
+    }
+
     // ── Free Delivery ─────────────────────────────────────────────────────
     const [freeDelivery, setFreeDelivery] = useState(settings.freeDelivery);
     const [freeSave, setFreeSave] = useState<SaveState>("idle");
@@ -294,6 +318,26 @@ export default function DeliverySettingsForm({ initialSettings }: { initialSetti
                     <input className={inputClass} type="number" min="0" value={minOrder} onChange={(e) => setMinOrder(Number(e.target.value))} />
                 </Field>
                 <SaveButton state={minOrderSave} onClick={saveMinOrder} />
+            </Card>
+
+            {/* ── Cash on Delivery ────────────────────────────────────────── */}
+            <Card title="Cash on Delivery" sub="COD is offered only for orders below this amount — larger orders must pay online">
+                <Field label="Maximum COD Order Amount (₹)">
+                    <input
+                        className={inputClass}
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={codMax}
+                        onChange={(e) => setCodMax(Number(e.target.value))}
+                    />
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-stone-500">
+                        Applies to the order&apos;s payable total (items after discounts + delivery fee + platform
+                        fee). An order whose total reaches or exceeds this amount can&apos;t use Cash on Delivery and
+                        must be paid online. Online/Razorpay payments are never blocked by this limit.
+                    </p>
+                </Field>
+                <SaveButton state={codMaxSave} onClick={saveCodMax} />
             </Card>
 
             {/* ── Free Delivery ───────────────────────────────────────────── */}

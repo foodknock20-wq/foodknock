@@ -46,6 +46,13 @@ const DeliverySettingsSchema = new Schema(
 
         orderRules: {
             minimumOrderValue: { type: Number, default: 189, min: 0 },
+            // COD is a MAXIMUM-cap rule (NOT a minimum): Cash-on-Delivery is
+            // offered only for orders strictly BELOW this amount; at/above it
+            // the customer must pay online. Additive field — legacy documents
+            // without it fall back to the verified hardcoded value
+            // (COD_MAX_ORDER_AMOUNT in src/lib/constants.ts) via the resolver
+            // in src/lib/deliverySettings.ts. Default mirrors that constant.
+            codMaxOrderAmount: { type: Number, default: 549, min: 1 },
         },
 
         freeDelivery: {

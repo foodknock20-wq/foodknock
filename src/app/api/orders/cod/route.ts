@@ -5,7 +5,8 @@
 // ── FLOW ──────────────────────────────────────────────────────────────────────
 //   1. Auth check (must be logged-in user; guest COD is blocked)
 //   2. Shop open check
-//   3. COD eligibility check (grandTotal must be < COD_MAX_ORDER_AMOUNT)
+//   3. COD eligibility check (grandTotal must be < the server-resolved
+//      DeliverySettings COD cap — see pricing.codMaxOrderAmount)
 //   4. Delegate to createOrderCore — same logic as Razorpay verify
 //      (stock, review reward, loyalty, telegram, first-free-delivery)
 //   5. Return orderId for redirect to /order-success
@@ -39,7 +40,6 @@ import {
 } from "@/lib/loyaltyService";
 import { createOrderCore } from "@/lib/createOrderCore";
 import { calculateAuthoritativePricing } from "@/lib/pricing";
-import { COD_MAX_ORDER_AMOUNT } from "@/lib/constants";
 
 export async function POST(req: Request) {
     try {
@@ -155,11 +155,15 @@ export async function POST(req: Request) {
         const grossTotal = subtotal + deliveryFee + PLATFORM_FEE;
 
         // ── COD eligibility ────────────────────────────────────────────────
-        if (grossTotal >= COD_MAX_ORDER_AMOUNT) {
+        // Fast-fail UX guard using the server-resolved cap (from the pricing
+        // engine above). createOrderCore re-checks the authoritative,
+        // discounted gross total as the true gate — this early check never
+        // becomes the only enforcement.
+        if (grossTotal >= pricing.codMaxOrderAmount) {
             return NextResponse.json(
                 {
                     success: false,
-                    message: `COD is only available for orders below ₹${COD_MAX_ORDER_AMOUNT}. Please pay online.`,
+                    message: `COD is only available for orders below ₹${pricing.codMaxOrderAmount}. Please pay online.`,
                 },
                 { status: 400 }
             );

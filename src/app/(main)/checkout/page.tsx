@@ -322,10 +322,10 @@ function EmptyCart() {
 }
 
 function PaymentMethodSelector({
-    selected, onChange, codAvailable, grandTotal, disabled,
+    selected, onChange, codAvailable, grandTotal, disabled, codMax,
 }: {
     selected: PaymentMethod; onChange: (m: PaymentMethod) => void;
-    codAvailable: boolean; grandTotal: number; disabled: boolean;
+    codAvailable: boolean; grandTotal: number; disabled: boolean; codMax: number;
 }) {
     return (
         <Card>
@@ -382,7 +382,7 @@ function PaymentMethodSelector({
                             {codAvailable ? (
                                 <p className="text-[11px] text-fk-text-secondary">Pay cash when your order arrives</p>
                             ) : (
-                                <p className="text-[11px] text-fk-gold font-semibold">COD available only for orders below ₹{COD_MAX_ORDER_AMOUNT}</p>
+                                <p className="text-[11px] text-fk-gold font-semibold">COD available only for orders below ₹{codMax}</p>
                             )}
                         </div>
                         <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${selected === "cod" && codAvailable ? "border-fk-success bg-fk-success" : "border-fk-border bg-fk-surface-elevated"}`}>
@@ -395,7 +395,7 @@ function PaymentMethodSelector({
                     <div className="flex items-center gap-2 rounded-fk-md border border-fk-success/20 bg-fk-success/10 px-3 py-2">
                         <Banknote size={12} className="shrink-0 text-fk-success" />
                         <p className="text-[11px] text-fk-success">
-                            ⚡ COD available for orders below <strong>₹{COD_MAX_ORDER_AMOUNT}</strong> — pay cash at your door
+                            ⚡ COD available for orders below <strong>₹{codMax}</strong> — pay cash at your door
                         </p>
                     </div>
                 )}
@@ -858,7 +858,7 @@ export default function CheckoutPage() {
     const appliedCouponSubtotal = useRef<number | null>(null);
     const [serviceability, setServiceability] = useState<{
         serviceable: boolean; distanceKm: number | null; deliveryFee: number;
-        freeDelivery: boolean; reason: string | null;
+        freeDelivery: boolean; reason: string | null; codMaxOrderAmount?: number;
     } | null>(null);
     const [checkingServiceability, setCheckingServiceability] = useState(false);
 
@@ -976,7 +976,11 @@ export default function CheckoutPage() {
     const grandTotal   = discountedSubtotal + deliveryFee + PLATFORM_FEE;
     const payableTotal = Math.max(0, grandTotal - loyaltyDiscount);
 
-    const codAvailable = grandTotal < COD_MAX_ORDER_AMOUNT;
+    // Server-resolved COD cap from the serviceability preview; the imported
+    // constant is only a pre-load display fallback (the backend is always the
+    // authoritative gate — same pattern as minimumOrderValue above).
+    const codMax = serviceability?.codMaxOrderAmount ?? COD_MAX_ORDER_AMOUNT;
+    const codAvailable = grandTotal < codMax;
 
     // Phase 11 — cart changes must revalidate an already-applied coupon
     // (spec §14): if subtotal drops below the coupon's minimum order after
@@ -1166,7 +1170,7 @@ export default function CheckoutPage() {
 
         if (!items.length)                                        { toast.error("Your cart is empty");                                  return false; }
         if (subtotal < MIN_ORDER_AMOUNT)                          { toast.error(`Minimum order amount is ₹${MIN_ORDER_AMOUNT}`);        return false; }
-        if (paymentMethod === "cod" && !codAvailable)             { toast.error(`COD only for orders below ₹${COD_MAX_ORDER_AMOUNT}`);  return false; }
+        if (paymentMethod === "cod" && !codAvailable)             { toast.error(`COD only for orders below ₹${codMax}`);               return false; }
         if (cartBlocked)                                          { toast.error("Please remove unavailable items from your cart");      return false; }
         // Phase 10 — proactive check once a location has actually been
         // chosen and checked (coordinates aren't required to submit at all
@@ -1575,6 +1579,7 @@ export default function CheckoutPage() {
                                     <PaymentMethodSelector
                                         selected={paymentMethod} onChange={setPaymentMethod}
                                         codAvailable={codAvailable} grandTotal={grandTotal}
+                                        codMax={codMax}
                                         disabled={isClosed || loading}
                                     />
 

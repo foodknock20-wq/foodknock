@@ -42,6 +42,8 @@ export type DeliveryPricingResult = {
     radiusKm: number;
     deliveryFee: number;
     minimumOrderValue: number;
+    /** COD maximum-cap: COD allowed only for orders strictly below this (resolved server-side). */
+    codMaxOrderAmount: number;
     freeDelivery: boolean;
     freeDeliveryReason: FreeDeliveryReason;
     remainingForFreeDelivery: number;
@@ -87,6 +89,7 @@ function matchDistanceRule(distanceKm: number, rules: DistanceRule[]): DistanceR
 export async function calculateDeliveryPricing(input: DeliveryPricingInput): Promise<DeliveryPricingResult> {
     const settings = await getDeliverySettings();
     const minimumOrderValue = settings.orderRules.minimumOrderValue;
+    const codMaxOrderAmount = settings.orderRules.codMaxOrderAmount;
 
     // Pickup never has a delivery fee or a serviceability concern.
     if (input.orderType === "pickup") {
@@ -96,6 +99,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
             radiusKm: settings.serviceability.maxRadiusKm,
             deliveryFee: 0,
             minimumOrderValue,
+            codMaxOrderAmount,
             freeDelivery: true,
             freeDeliveryReason: null,
             remainingForFreeDelivery: 0,
@@ -145,6 +149,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
             radiusKm: settings.serviceability.maxRadiusKm,
             deliveryFee: free ? 0 : FLAT_DELIVERY_FEE,
             minimumOrderValue,
+            codMaxOrderAmount,
             freeDelivery: free,
             freeDeliveryReason: reason,
             remainingForFreeDelivery: remaining(free),
@@ -160,6 +165,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
             radiusKm: settings.serviceability.maxRadiusKm,
             deliveryFee: 0,
             minimumOrderValue,
+            codMaxOrderAmount,
             freeDelivery: false,
             freeDeliveryReason: null,
             remainingForFreeDelivery: 0,
@@ -175,6 +181,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
             radiusKm: settings.serviceability.maxRadiusKm,
             deliveryFee: 0,
             minimumOrderValue,
+            codMaxOrderAmount,
             freeDelivery: false,
             freeDeliveryReason: null,
             remainingForFreeDelivery: 0,
@@ -199,6 +206,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
             radiusKm: settings.serviceability.maxRadiusKm,
             deliveryFee: 0,
             minimumOrderValue,
+            codMaxOrderAmount,
             freeDelivery: false,
             freeDeliveryReason: null,
             remainingForFreeDelivery: 0,
@@ -218,6 +226,7 @@ export async function calculateDeliveryPricing(input: DeliveryPricingInput): Pro
         radiusKm: settings.serviceability.maxRadiusKm,
         deliveryFee: free ? 0 : distanceFee,
         minimumOrderValue,
+        codMaxOrderAmount,
         freeDelivery: free,
         freeDeliveryReason: reason,
         remainingForFreeDelivery: remaining(free),

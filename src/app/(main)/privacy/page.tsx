@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 
 const CONTACT_EMAIL = "foodknock20@gmail.com";
-const LAST_UPDATED  = "January 2025";
+const LAST_UPDATED  = "October 2026";
 
 const SECTIONS = [
     {
@@ -56,14 +56,21 @@ const SECTIONS = [
         emoji: "💳",
         icon:  CreditCard,
         title: "Online Payments",
-        body:  `FoodKnock processes all payments online through a secure payment gateway. We do not store your card details on our servers. All transactions are encrypted using industry-standard SSL/TLS protocols.\n\nYour payment information is handled entirely by our payment processor and is subject to their security standards and privacy policy. We receive only a transaction confirmation — never your full card details.`,
+        body:  `FoodKnock processes online payments through Razorpay, our payment gateway. We do not collect or store your card, UPI or bank details on our servers — that information is entered directly with Razorpay and handled under their security standards and privacy policy. All transactions are encrypted in transit.\n\nWe receive only what we need to fulfil your order: a transaction/payment reference and confirmation status, never your full payment credentials. These payment references are kept with the order record for reconciliation and refunds.`,
     },
     {
         id:    "account-management",
         emoji: "⚙️",
         icon:  Smartphone,
         title: "Account Deletion & Password Reset",
-        body:  `You have full control over your account:\n\n• Forgot your password? Send an email to ${CONTACT_EMAIL} with the subject "Password Reset Request" and we will send you a secure reset link within a few hours.\n\n• Want to delete your account? Email us at ${CONTACT_EMAIL} with the subject "Account Deletion Request". We will permanently delete your account and associated data within 7 business days, except where we are legally required to retain certain records.\n\nWe take all such requests seriously and will confirm via email once completed.`,
+        body:  `You have full control over your account:\n\n• Forgot your password? Use the "Forgot password?" option on the sign-in screen to receive a one-time code by email and set a new password.\n\n• Want to delete your account? You can do it yourself, immediately, from within the app: go to Account → Delete Account, re-enter your password, and confirm on the final step. Your profile is removed and you are signed out right away. You can also start from our public page at /delete-account.\n\nWhen you delete your account we immediately remove your profile, saved addresses, notification preferences and push subscriptions. Past orders and payment records are kept in anonymized form (your name, phone and address are scrubbed) where we need them for legal, accounting and fraud-prevention reasons — see "Data Storage & Retention" below. Deleting your account does not by itself cancel an active order or trigger a refund; contact us first if you have one in progress.\n\nIf you can't sign in, email us at ${CONTACT_EMAIL} from your account's email address so we can verify it's you before deleting anything. We never action an unverified deletion request.`,
+    },
+    {
+        id:    "promotion-data",
+        emoji: "🎟️",
+        icon:  ShieldCheck,
+        title: "First-Order Promotion Record",
+        body:  `To stop our first-order free-delivery offer from being claimed repeatedly by deleting and recreating an account, we keep a minimal record when that benefit has been used. It stores a one-way keyed code derived from your verified email (never your raw email) together with the fact that the benefit was used. This record is kept even after account deletion.\n\nThis code is pseudonymous, not anonymous: because we hold the key, it is still treated as personal data. It is used only to prevent promotion abuse, is never shown to staff or shared with anyone, and is kept separate from our financial records.`,
     },
     {
         id:    "cookies",
@@ -98,7 +105,7 @@ const SECTIONS = [
         emoji: "🖥️",
         icon:  Server,
         title: "Data Storage & Retention",
-        body:  `Your data is stored on secure servers. We retain personal data only for as long as necessary to provide our services or as required by law.\n\nWhen you delete your account, we will remove your personal data from our active systems within 7 business days. Some data may be retained in secure backups for a limited additional period before being permanently erased.`,
+        body:  `Your data is stored on secure cloud-hosted databases. We retain personal data only for as long as necessary to provide our services or as required by law.\n\nWhen you delete your account, your profile and personal details are removed from our active systems immediately. Order and payment records are retained in anonymized form for legitimate legal, accounting and fraud-prevention purposes, and a minimal pseudonymous promotion record is kept to prevent repeat-offer abuse (see the sections above). Copies of data may persist for a limited time in routine encrypted backups before being overwritten in the normal backup rotation.`,
     },
     {
         id:    "changes",

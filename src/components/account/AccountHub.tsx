@@ -17,7 +17,7 @@ import { useState } from "react";
 import { toast } from "react-hot-toast";
 import {
     User, MapPin, Package, Gift, Bell, KeyRound, LogOut, ChevronRight,
-    Sparkles, HelpCircle, ArrowRight,
+    Sparkles, HelpCircle, ArrowRight, Trash2,
 } from "lucide-react";
 import { useAccountUser } from "@/components/account/AccountContext";
 
@@ -160,6 +160,19 @@ export default function AccountHub() {
                     <div className="flex-1">
                         <p className="text-[14px] font-semibold text-fk-text">Change Password</p>
                         <p className="text-[12px] text-fk-text-tertiary">Use &quot;Forgot password?&quot; on the sign-in screen</p>
+                    </div>
+                    <ChevronRight size={16} className="text-fk-text-tertiary" />
+                </Link>
+                <Link
+                    href="/account/delete"
+                    className="flex items-center gap-3 border-b border-fk-border px-4 py-3.5 transition-colors hover:bg-fk-surface-interactive"
+                >
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-fk-sm bg-fk-surface-selected">
+                        <Trash2 size={16} className="text-fk-text-secondary" strokeWidth={2} />
+                    </div>
+                    <div className="flex-1">
+                        <p className="text-[14px] font-semibold text-fk-text">Delete Account</p>
+                        <p className="text-[12px] text-fk-text-tertiary">Permanently remove your FoodKnock account</p>
                     </div>
                     <ChevronRight size={16} className="text-fk-text-tertiary" />
                 </Link>

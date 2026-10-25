@@ -83,6 +83,22 @@ const LoginSecuritySchema = new Schema(
 // without requiring a migration. Individual keys default to `true` here
 // too, so even a partially-set subdocument behaves correctly for every
 // other field.
+// ── Account-deletion intent nonce (single-use, server-stored) ───────────
+// Fully optional, additive subdocument — same treatment as PasswordReset/
+// LoginSecurity above. Holds only the HASH of the current deletion-intent
+// nonce (never the raw value) plus its expiry. Set at the deletion
+// "initiate" step (after password re-auth) and atomically consumed exactly
+// once at the "confirm" step, so a replayed/stale/altered token cannot
+// start a second deletion. Absent on every account until a deletion is
+// started; cleared on consume; vanishes entirely when the user is deleted.
+const AccountDeletionSchema = new Schema(
+    {
+        nonceHash:      { type: String, default: null },
+        nonceExpiresAt: { type: Date, default: null },
+    },
+    { _id: false }
+);
+
 const NotificationPreferencesSchema = new Schema(
     {
         orderUpdates:   { type: Boolean, default: true },
@@ -127,6 +143,9 @@ const UserSchema = new Schema(
 
         // Notification preferences — optional, see NotificationPreferencesSchema above.
         notificationPreferences: { type: NotificationPreferencesSchema, default: undefined },
+
+        // Account-deletion intent nonce — optional, see AccountDeletionSchema above.
+        accountDeletion: { type: AccountDeletionSchema, default: undefined },
     },
     { timestamps: true }
 );
@@ -152,6 +171,7 @@ if (
     models.User &&
     (!models.User.schema.path("loginSecurity") ||
         !models.User.schema.path("notificationPreferences") ||
+        !models.User.schema.path("accountDeletion") ||
         !models.User.schema.path("addresses"))
 ) {
     mongoose.deleteModel("User");

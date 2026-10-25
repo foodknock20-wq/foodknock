@@ -72,6 +72,7 @@ export async function POST(req: Request) {
             radiusKm: result.radiusKm,
             deliveryFee: result.deliveryFee,
             minimumOrderValue: result.minimumOrderValue,
+            codMaxOrderAmount: result.codMaxOrderAmount,
             freeDelivery: result.freeDelivery,
             freeDeliveryReason: result.freeDeliveryReason,
             remainingForFreeDelivery: result.remainingForFreeDelivery,

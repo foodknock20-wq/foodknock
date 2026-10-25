@@ -25,6 +25,9 @@ const STATIC_ROUTES: MetadataRoute.Sitemap = [
     { url: `${BASE_URL}/review-rewards`, lastModified: new Date(), changeFrequency: "monthly", priority: 0.5 },
     { url: `${BASE_URL}/privacy`,      lastModified: new Date(), changeFrequency: "yearly",  priority: 0.3  },
     { url: `${BASE_URL}/terms`,        lastModified: new Date(), changeFrequency: "yearly",  priority: 0.3  },
+    // Public account-deletion resource (Google Play "Account deletion"
+    // requirement) — intentionally indexable; see delete-account/page.tsx.
+    { url: `${BASE_URL}/delete-account`, lastModified: new Date(), changeFrequency: "yearly", priority: 0.3 },
     { url: `${BASE_URL}/auth`,         lastModified: new Date(), changeFrequency: "monthly", priority: 0.4  },
     // Phase 17.2 (F18): /cart is removed from here — its own layout sets
     // `robots: { index: false, follow: false }` (see cart/layout.tsx), so

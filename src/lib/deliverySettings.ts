@@ -12,6 +12,7 @@
 
 import { connectDB } from "@/lib/db";
 import DeliverySettings from "@/models/DeliverySettings";
+import { COD_MAX_ORDER_AMOUNT } from "@/lib/constants";
 
 export type DistanceRule = {
     _id?: string;
@@ -30,7 +31,12 @@ export type DeliverySettingsData = {
         active: boolean;
     };
     serviceability: { maxRadiusKm: number };
-    orderRules: { minimumOrderValue: number };
+    orderRules: {
+        minimumOrderValue: number;
+        // COD maximum-cap (see model). Always a resolved finite number here —
+        // the verified legacy fallback is applied in shape() when absent/invalid.
+        codMaxOrderAmount: number;
+    };
     freeDelivery: {
         firstOrderFreeEnabled: boolean;
         thresholdEnabled: boolean;
@@ -63,7 +69,7 @@ type RawDistanceRule = { _id?: unknown; fromKm?: number; toKm?: number; fee?: nu
 type RawSettingsDoc = {
     kitchen?: { name?: string; address?: string; latitude?: number | null; longitude?: number | null; active?: boolean };
     serviceability?: { maxRadiusKm?: number };
-    orderRules?: { minimumOrderValue?: number };
+    orderRules?: { minimumOrderValue?: number; codMaxOrderAmount?: number };
     freeDelivery?: { firstOrderFreeEnabled?: boolean; thresholdEnabled?: boolean; thresholdAmount?: number };
     distanceRules?: RawDistanceRule[];
     updatedAt?: Date | string;
@@ -83,6 +89,16 @@ function shape(doc: RawSettingsDoc): DeliverySettingsData {
         },
         orderRules: {
             minimumOrderValue: doc.orderRules?.minimumOrderValue ?? 189,
+            // Verified legacy fallback: a missing OR invalid (non-finite / <1)
+            // stored value resolves to the hardcoded COD_MAX_ORDER_AMOUNT so a
+            // legacy document (or a corrupt field) never silently removes the
+            // COD cap, and never collapses to 0 (which would block ALL COD).
+            codMaxOrderAmount:
+                typeof doc.orderRules?.codMaxOrderAmount === "number" &&
+                Number.isFinite(doc.orderRules.codMaxOrderAmount) &&
+                doc.orderRules.codMaxOrderAmount >= 1
+                    ? doc.orderRules.codMaxOrderAmount
+                    : COD_MAX_ORDER_AMOUNT,
         },
         freeDelivery: {
             firstOrderFreeEnabled: doc.freeDelivery?.firstOrderFreeEnabled ?? true,
@@ -206,6 +222,26 @@ export async function updateDeliverySettings(patch: DeliverySettingsPatch): Prom
 
     if (patch.orderRules?.minimumOrderValue !== undefined) {
         update["orderRules.minimumOrderValue"] = assertFiniteNonNegative(patch.orderRules.minimumOrderValue, "Minimum order value");
+    }
+
+    if (patch.orderRules?.codMaxOrderAmount !== undefined) {
+        // Strict: reject blank/empty-string (which Number() would coerce to 0
+        // and silently block ALL COD), NaN, Infinity, negatives and absurd
+        // values. Whole rupees only — consistent with the rest of money here.
+        // Must be >= 1 (0 is disallowed: it would make COD unavailable for
+        // every order; if the owner wants to disable COD that is a separate,
+        // explicit decision, not an accidental zero).
+        const raw: unknown = patch.orderRules.codMaxOrderAmount;
+        if (raw === null || (typeof raw === "string" && raw.trim() === "")) {
+            throw new Error("Maximum COD order amount is required");
+        }
+        const n = Number(raw);
+        if (!Number.isFinite(n) || !Number.isInteger(n)) {
+            throw new Error("Maximum COD order amount must be a whole number");
+        }
+        if (n < 1) throw new Error("Maximum COD order amount must be at least ₹1");
+        if (n > 1_000_000) throw new Error("Maximum COD order amount is too large");
+        update["orderRules.codMaxOrderAmount"] = n;
     }
 
     if (patch.freeDelivery) {

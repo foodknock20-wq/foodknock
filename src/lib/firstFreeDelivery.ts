@@ -36,17 +36,27 @@
 // This is purely a read-time check — no migration script required.
 
 import User from "@/models/User";
+import {
+    hasConsumedFirstDelivery,
+    recordFirstDeliveryConsumed,
+} from "@/lib/promotionEligibility";
 
 // ─── Phase 1: Read-only eligibility check ────────────────────────────────────
 //
 // Call this BEFORE creating the order.  Returns whether the benefit applies.
 // Does NOT mutate any document.
 //
-// Rules:
+// Rules (ALL must hold):
 //   1. Must be a logged-in user  (linkedUserId !== null)
 //   2. Must be a delivery order  (orderType === "delivery")
-//   3. firstDeliveryFreeUsed must be false  (flag not yet consumed)
+//   3. firstDeliveryFreeUsed must be false  (same-account flag not yet consumed)
 //   4. deliveredOrderCount must be 0        (no prior delivered orders — old-user guard)
+//   5. The verified-identity ledger must NOT already mark this email as
+//      having consumed the benefit on a prior (possibly deleted) account —
+//      this is what closes the delete-and-recreate re-grant exploit
+//      (see src/lib/promotionEligibility.ts). A brand-new User always
+//      passes 3 & 4, so without this cross-identity check the benefit
+//      could be farmed by repeatedly deleting and recreating the account.
 export async function checkFirstFreeDelivery(
     linkedUserId: string | null,
     orderType: string
@@ -59,10 +69,16 @@ export async function checkFirstFreeDelivery(
         firstDeliveryFreeUsed: false,
         deliveredOrderCount:   0,
     })
-        .select("_id")
-        .lean();
+        .select("_id email")
+        .lean<{ _id: unknown; email?: string } | null>();
 
-    return { eligible: user !== null };
+    if (!user) return { eligible: false };
+
+    // Cross-identity guard: even a fresh User is ineligible if THIS verified
+    // email already consumed the benefit on an earlier account.
+    if (await hasConsumedFirstDelivery(user.email)) return { eligible: false };
+
+    return { eligible: true };
 }
 
 // ─── Phase 2: Consume the benefit ────────────────────────────────────────────
@@ -80,14 +96,25 @@ export async function consumeFirstFreeDelivery(
 ): Promise<void> {
     if (!linkedUserId) return;
 
-    await User.findOneAndUpdate(
+    const updated = await User.findOneAndUpdate(
         {
             _id:                   linkedUserId,
             firstDeliveryFreeUsed: false,
             deliveredOrderCount:   0,
         },
-        { $set: { firstDeliveryFreeUsed: true } }
-    );
+        { $set: { firstDeliveryFreeUsed: true } },
+        { new: true }
+    )
+        .select("email")
+        .lean<{ email?: string } | null>();
+
+    // Also stamp the cross-identity ledger so a future delete→recreate with
+    // the same verified email cannot reclaim the benefit. Best-effort and
+    // idempotent — see recordFirstDeliveryConsumed. Only the CAS winner
+    // records (findOneAndUpdate returns null if already consumed).
+    if (updated?.email) {
+        await recordFirstDeliveryConsumed(updated.email);
+    }
     // Intentionally no return value — callers treat this as fire-and-forget
     // after order creation.  A failed write here is acceptable: the user simply
     // gets another eligibility check on their next order, and since

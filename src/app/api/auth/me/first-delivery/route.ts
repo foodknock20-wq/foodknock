@@ -23,6 +23,7 @@ import { NextResponse } from "next/server";
 import { connectDB }   from "@/lib/db";
 import User            from "@/models/User";
 import { verifyToken } from "@/lib/auth";
+import { hasConsumedFirstDelivery } from "@/lib/promotionEligibility";
 
 export async function GET(req: Request) {
     try {
@@ -48,17 +49,27 @@ export async function GET(req: Request) {
 
         await connectDB();
 
-        // ── Query: both conditions must be true ───────────────────────────
+        // ── Query: same-account conditions must be true ───────────────────
         const user = await User.findOne({
             _id:                   decoded.userId,
             isActive:              { $ne: false },  // blocked users are ineligible
             firstDeliveryFreeUsed: false,
             deliveredOrderCount:   0,
         })
-            .select("_id")
-            .lean();
+            .select("_id email")
+            .lean<{ _id: unknown; email?: string } | null>();
 
-        return NextResponse.json({ eligible: user !== null });
+        if (!user) return NextResponse.json({ eligible: false });
+
+        // Cross-identity ledger guard — keep the displayed banner honest for
+        // a returning identity that already consumed the benefit on a prior
+        // (deleted) account. Mirrors checkFirstFreeDelivery() exactly so the
+        // display can never promise what order creation will refuse.
+        if (await hasConsumedFirstDelivery(user.email)) {
+            return NextResponse.json({ eligible: false });
+        }
+
+        return NextResponse.json({ eligible: true });
     } catch (error) {
         console.error("FIRST_DELIVERY_ELIGIBILITY_ERROR", error);
         // Fail safe: return ineligible rather than crashing the checkout page
