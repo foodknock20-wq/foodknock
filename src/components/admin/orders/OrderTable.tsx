@@ -274,8 +274,20 @@ export default function OrderTable({ orders, statusCountMap, attentionCount, fil
 
     // ── 5-second live polling — TOAST/SOUND ONLY, never mutates the
     //    rendered (server-filtered/paginated) list. ──
+    //
+    // INCIDENT (Vercel Fluid Active CPU): this poll fires every 5s for as long
+    // as an admin tab stays OPEN. A tab left open in the background still
+    // issued a GET /api/orders every 5s — a serverless function invocation +
+    // DB read each time — around the clock, for zero benefit when nobody is
+    // looking. It is now gated on document.visibilityState: no request is made
+    // while the tab is hidden, and a fresh poll runs the instant the tab
+    // becomes visible again — so the live new-order toast/sound is fully
+    // preserved whenever the admin is actually watching, with no change to the
+    // 5s cadence while the tab is focused.
     useEffect(() => {
         const poll = async () => {
+            // Skip the network round-trip entirely while the tab is hidden.
+            if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
             try {
                 const res = await fetch("/api/orders?limit=200&fields=minimal", { cache: "no-store" });
                 const data = await res.json();
@@ -332,7 +344,15 @@ export default function OrderTable({ orders, statusCountMap, attentionCount, fil
         };
 
         const interval = setInterval(poll, 5000);
-        return () => clearInterval(interval);
+        // Poll immediately when the admin returns to the tab, so a backgrounded
+        // tab shows fresh orders the instant it regains focus instead of
+        // waiting up to 5s for the next tick.
+        const onVisible = () => { if (document.visibilityState === "visible") void poll(); };
+        document.addEventListener("visibilitychange", onVisible);
+        return () => {
+            clearInterval(interval);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
     }, [router]);
 
     // ── Handlers ──

@@ -96,7 +96,77 @@ export type SiteStats = {
 const PRODUCT_SELECT = "_id name slug shortDescription price compareAtPrice category image stock isAvailable isFeatured rating";
 
 // ─── Data fetcher ──────────────────────────────────────────────────────────
-async function getHomeData(): Promise<{
+//
+// INCIDENT (Vercel Fluid Active CPU) — Phase 6 (independent, non-caching):
+// the home page stays force-dynamic (caching its HTML is deferred — see the
+// incident report), so WITHOUT this the ~8 catalog/review/category/campaign/
+// offer DB reads below PLUS the popular-products sort/dedup and
+// computeSiteStats ran on EVERY home request, including every crawler hit.
+// This adds the SAME in-process, per-instance 30s TTL cache already proven on
+// /menu's getProducts() and Shop.ts's getShopStatus(): a PUBLIC, non-
+// personalized, display-only read (identical for every visitor — no cart/
+// auth/payment data). Price/stock/offers/shop-status display may lag reality
+// by ≤30s, which is safe because checkout re-validates stock (atomic $inc in
+// createOrderCore) and price (calculateAuthoritativePricing) live against the
+// DB; nothing downstream ever trusts this cached value. Module scope: survives
+// across requests on a warm instance, resets on cold start; never shared/
+// global, never mixes users. Collapses the repeated DB + aggregation work to
+// once per 30s per warm instance.
+const HOME_CACHE_TTL_MS = 30_000;
+// Bounded transient-failure fallback (NOT a freshness window): if a refresh
+// throws after the TTL has lapsed, serve the last good data up to this hard
+// ceiling instead of a blank homepage; past it, fall back to empty. Mirrors
+// /menu's MENU_STALE_MAX_MS. Never extends the TTL, never suppresses retries.
+const HOME_STALE_MAX_MS = 5 * 60_000;
+
+type HomeData = Awaited<ReturnType<typeof fetchHomeDataFresh>>;
+
+const EMPTY_HOME_DATA: HomeData = {
+    featuredProducts: [], popularProducts: [], valueProducts: [], comboProducts: [],
+    recentReviews: [], stats: { avgRating: null, totalReviews: 0 },
+    categories: [], isShopOpen: true, closedReasonLabel: null, campaigns: [], offers: [],
+};
+
+let cachedHomeData: HomeData | null = null;
+let homeCacheExpiresAt = 0;
+let homeCacheLastSuccessAt = 0;
+let homeCacheInFlight: Promise<HomeData> | null = null;
+
+// Cached entry point used by the page (same name as before → caller unchanged).
+// In-flight de-duplication: concurrent cache-miss requests share one fetch. A
+// failed fetch is NEVER cached — the TTL stays expired so the next request
+// retries cleanly, and a bounded stale fallback avoids a blank page.
+async function getHomeData(): Promise<HomeData> {
+    if (cachedHomeData !== null && Date.now() < homeCacheExpiresAt) {
+        return cachedHomeData;
+    }
+    if (homeCacheInFlight) {
+        return homeCacheInFlight;
+    }
+    homeCacheInFlight = (async () => {
+        try {
+            const data = await fetchHomeDataFresh();
+            cachedHomeData = data;
+            homeCacheExpiresAt = Date.now() + HOME_CACHE_TTL_MS;
+            homeCacheLastSuccessAt = Date.now();
+            return data;
+        } catch {
+            // fetchHomeDataFresh already logged the underlying error. Serve the
+            // last good data within the bounded stale window; otherwise empty.
+            const staleAgeMs = Date.now() - homeCacheLastSuccessAt;
+            if (cachedHomeData !== null && staleAgeMs <= HOME_STALE_MAX_MS) {
+                console.warn("HOME_DATA_SERVING_STALE_FALLBACK", { ageMs: staleAgeMs });
+                return cachedHomeData;
+            }
+            return EMPTY_HOME_DATA;
+        } finally {
+            homeCacheInFlight = null;
+        }
+    })();
+    return homeCacheInFlight;
+}
+
+async function fetchHomeDataFresh(): Promise<{
     featuredProducts: HomeProduct[];
     popularProducts: HomeProduct[];
     valueProducts: HomeProduct[];
@@ -240,12 +310,12 @@ async function getHomeData(): Promise<{
             campaigns,
             offers,
         };
-    } catch {
-        return {
-            featuredProducts: [], popularProducts: [], valueProducts: [], comboProducts: [],
-            recentReviews: [], stats: { avgRating: null, totalReviews: 0 },
-            categories: [], isShopOpen: true, closedReasonLabel: null, campaigns: [], offers: [],
-        };
+    } catch (error) {
+        // Re-throw (after logging) so the cached getHomeData() wrapper decides
+        // whether to serve bounded stale data or empty — a transient failure
+        // must never be cached as a "successful" empty homepage.
+        console.error("HOME_DATA_FETCH_ERROR:", error);
+        throw error;
     }
 }
 

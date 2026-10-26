@@ -1,4 +1,12 @@
-export const dynamic = "force-dynamic";
+// INCIDENT (Vercel Fluid Active CPU): pure static content page — no
+// per-request/server data is read here (compile-time-constant CHANNELS +
+// business-hours constants + metadata). The previous `force-dynamic` turned
+// every visit, including every crawler/bot hit, into a serverless function
+// invocation + SSR, burning Active CPU for zero freshness benefit.
+// `force-static` prerenders it once at build and serves it from the CDN with
+// no function invocation. Do NOT re-add force-dynamic unless this page starts
+// reading genuine per-request data.
+export const dynamic = "force-static";
 
 // src/app/(main)/contact/page.tsx
 // FoodKnock — Premium Support & Contact Hub

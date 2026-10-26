@@ -1,4 +1,12 @@
-export const dynamic = "force-dynamic";
+// INCIDENT (Vercel Fluid Active CPU): this is a pure static content page —
+// it reads NO per-request/server data (the FAQS array + FAQPage JSON-LD are
+// compile-time constants). The previous `force-dynamic` made every visit,
+// including every crawler/bot hit, invoke a serverless function and SSR the
+// page — burning Active CPU for zero freshness benefit. `force-static`
+// prerenders it once at build and serves it from the CDN with no function
+// invocation. Do NOT re-add force-dynamic unless this page starts reading
+// genuine per-request data.
+export const dynamic = "force-static";
 
 // src/app/(main)/faq/page.tsx
 //
