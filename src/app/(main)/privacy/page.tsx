@@ -23,7 +23,7 @@ import Footer from "@/components/shared/Footer";
 import {
     Lock, ShieldCheck, Eye, Server, Cookie,
     Link2, Mail, Settings, RefreshCw, HelpCircle,
-    Package, Smartphone, CreditCard,
+    Package, Smartphone, CreditCard, MapPin, Bell,
 } from "lucide-react";
 
 const CONTACT_EMAIL = "foodknock20@gmail.com";
@@ -42,14 +42,14 @@ const SECTIONS = [
         emoji: "📋",
         icon:  Eye,
         title: "Information We Collect",
-        body:  `When you use our website or place an order, we may collect:\n\n• Your name, email address, and delivery address when you register or place an order\n• Reviews or feedback you voluntarily submit on our website\n• Basic website usage data (pages visited, browser type) for analytics purposes\n\nWe do not collect payment card details directly — all payments are processed securely through our payment gateway. We do not require government IDs. We keep data collection minimal and purposeful.`,
+        body:  `Information you give us directly:\n\n• Account details when you register: your name, email address and phone number (both required), and a password (stored only in securely hashed form). You can optionally add a date of birth.\n• Delivery details: one or more saved delivery addresses (flat/house, locality, city, state, pincode, landmark) and any delivery instructions you add.\n• Order information: the items you order, order totals, order status and timestamps, and any note you attach to an order.\n• Reviews and feedback you voluntarily submit.\n• Messages you send us for customer support.\n\nInformation generated or collected automatically:\n\n• Precise delivery location (GPS latitude/longitude) only when you choose to share it or drop a map pin at checkout — see "Location & Delivery" below.\n• Push-notification subscription details (a device/browser push token) if you enable notifications — see "Notifications" below.\n• Basic, aggregate website usage data (such as which pages are visited) through our analytics tool — see "Cookies & Analytics" below.\n• Loyalty points, referral code and promotion-eligibility state tied to your account.\n\nWe do not collect or store your payment card, UPI or bank details on our servers — those are handled directly by our payment gateway (see "Online Payments"). We do not require government IDs.`,
     },
     {
         id:    "how-we-use",
         emoji: "🔧",
         icon:  Settings,
         title: "How We Use Your Information",
-        body:  `The information you provide is used solely to:\n\n• Process and fulfill your food orders\n• Coordinate delivery to your address\n• Send order confirmations and updates to your registered email\n• Respond to your support queries or complaints\n• Improve our menu and service based on honest feedback\n\nWe do not use your information for advertising networks, data brokers, or any third-party marketing purposes.`,
+        body:  `We use the information above to:\n\n• Create and manage your account and sign you in securely.\n• Process and fulfil your food orders and coordinate delivery to your address.\n• Send you order confirmations and updates, delivery notifications, and one-time codes for signup and password reset (by email, push and/or WhatsApp — see "Notifications").\n• Reconcile payments and process refunds.\n• Respond to your support queries, complaints and privacy requests.\n• Keep accounts secure and prevent fraud and abuse — including login-protection, verifying account ownership before deletion, and preventing repeated misuse of our first-order promotion.\n• Run loyalty, referral and promotional features you take part in.\n• Understand aggregate usage so we can improve our menu and service.\n\nWe do not sell your data, and we do not use it for advertising networks, data brokers, or third-party marketing.`,
     },
     {
         id:    "order-contact",
@@ -66,11 +66,25 @@ const SECTIONS = [
         body:  `FoodKnock processes online payments through Razorpay, our payment gateway. We do not collect or store your card, UPI or bank details on our servers — that information is entered directly with Razorpay and handled under their security standards and privacy policy. All transactions are encrypted in transit.\n\nWe receive only what we need to fulfil your order: a transaction/payment reference and confirmation status, never your full payment credentials. These payment references are kept with the order record for reconciliation and refunds.`,
     },
     {
+        id:    "location",
+        emoji: "📍",
+        icon:  MapPin,
+        title: "Location & Delivery",
+        body:  `There are two separate things here, and we treat them differently:\n\n• Delivery address you enter: the address you type or save is ordinary account data, used to deliver your order.\n\n• Precise device location (GPS): we access your device's current location only when you actively tap "use my current location" or move the pin on the map at checkout. We do not track your location in the background and we do not collect it continuously. Your browser always asks for permission first, and you can decline and type your address instead.\n\nWhen you share a precise location, the latitude/longitude is used to check delivery serviceability, pre-fill your address and attach delivery coordinates to that order so it can be delivered. To turn coordinates into a readable address and to show the map, we send the coordinates to OpenStreetMap (Nominatim geocoding and map tiles). Delivery coordinates stored on an order are scrubbed when you delete your account.`,
+    },
+    {
+        id:    "notifications",
+        emoji: "🔔",
+        icon:  Bell,
+        title: "Notifications",
+        body:  `With your agreement we send you order updates, delivery alerts, one-time verification codes and occasional offers through:\n\n• Email — delivered via our email (SMTP) provider.\n• WhatsApp — for things like signup verification codes and "order delivered" messages, sent through the WhatsApp Business Cloud API (operated by Meta). This uses the phone number on your account.\n• Web/app push — if you enable it, we store a push subscription (a device/browser token) and deliver messages through Firebase Cloud Messaging (operated by Google) and standard web-push services.\n\nYou can manage notification categories in your account settings, turn off browser/device push at any time, and ask us to stop promotional messages. Your push subscription is deleted when you delete your account.`,
+    },
+    {
         id:    "account-management",
         emoji: "⚙️",
         icon:  Smartphone,
         title: "Account Deletion & Password Reset",
-        body:  `You have full control over your account:\n\n• Forgot your password? Use the "Forgot password?" option on the sign-in screen to receive a one-time code by email and set a new password.\n\n• Want to delete your account? You can do it yourself, immediately, from within the app: go to Account → Delete Account, re-enter your password, and confirm on the final step. Your profile is removed and you are signed out right away. You can also start from our public page at /delete-account.\n\nWhen you delete your account we immediately remove your profile, saved addresses, notification preferences and push subscriptions. Past orders and payment records are kept in anonymized form (your name, phone and address are scrubbed) where we need them for legal, accounting and fraud-prevention reasons — see "Data Storage & Retention" below. Deleting your account does not by itself cancel an active order or trigger a refund; contact us first if you have one in progress.\n\nIf you can't sign in, email us at ${CONTACT_EMAIL} from your account's email address so we can verify it's you before deleting anything. We never action an unverified deletion request.`,
+        body:  `You have full control over your account:\n\n• Forgot your password? Use the "Forgot password?" option on the sign-in screen to receive a one-time code by email and set a new password.\n\n• Want to delete your account? You can do it yourself, immediately, from within the app: go to Account → Delete Account, re-enter your password, and confirm on the final step. Your profile is removed and you are signed out right away. You can also start from our public page at /delete-account.\n\nWhen you delete your account we immediately remove your profile (name, phone, date of birth and other profile details), saved addresses, notification preferences, push subscriptions, spin/game records and personalised marketing state. Past orders and payment records are kept in anonymized form (your name, phone and address are scrubbed) where we need them for legal, accounting and fraud-prevention reasons — see "Data Storage & Retention" below. Deleting your account does not by itself cancel an active order or trigger a refund; contact us first if you have one in progress.\n\nIf you can't sign in, email us at ${CONTACT_EMAIL} from your account's email address so we can verify it's you before deleting anything. We never action an unverified deletion request.`,
     },
     {
         id:    "promotion-data",
@@ -84,14 +98,14 @@ const SECTIONS = [
         emoji: "🍪",
         icon:  Cookie,
         title: "Cookies & Analytics",
-        body:  `Our website uses basic cookies to remember your preferences, keep you logged in, and improve your browsing experience. We may use privacy-respecting analytics tools to understand how visitors use our site (e.g., which pages are most visited). This data is anonymous and not linked to any personal identity.\n\nYou can choose to disable cookies in your browser settings. Some features of the website (like staying logged in) may not work if cookies are disabled.`,
+        body:  `Our website uses essential cookies to keep you logged in and remember your preferences. Without these, features like staying signed in will not work; you can still disable cookies in your browser settings.\n\nFor usage insights we use Vercel Web Analytics, which is cookie-less and measures aggregate traffic (such as which pages are visited and general device/browser type). It is designed not to track individual visitors across sites and is not tied to your name or account. We do not use advertising or cross-site tracking pixels.`,
     },
     {
         id:    "data-sharing",
         emoji: "🔗",
         icon:  Link2,
         title: "Data Sharing & Third Parties",
-        body:  `We do not sell, rent, or trade your personal data to any third parties.\n\nWe may share minimal necessary information with:\n• Our delivery partners (name, address) solely to complete your delivery\n• Our payment gateway to process your transaction securely\n• Our website hosting and technical service providers, who are bound to keep data secure\n\nWe do not share your data with advertisers, data brokers, or marketing platforms.`,
+        body:  `We do not sell, rent, or trade your personal data. We share the minimum necessary information with the service providers that run FoodKnock:\n\n• Our delivery team — your name, address, phone and delivery coordinates, solely to complete your delivery.\n• Razorpay — to process your online payment securely (see "Online Payments").\n• Vercel — our hosting platform and the provider of our cookie-less web analytics.\n• Our cloud-hosted MongoDB database provider, where account and order data is stored.\n• WhatsApp Business Cloud API (Meta) — your phone number and message content, to send verification codes and order updates.\n• Our email (SMTP) provider — your email address and message content, to send emails such as order and password-reset messages.\n• Firebase Cloud Messaging (Google) and standard web-push services — your push token, to deliver notifications you enabled.\n• OpenStreetMap — latitude/longitude you share, to convert it into an address and show the map.\n\nWe share this information with each provider only for the specific purpose described above, and never with advertisers, data brokers, or marketing platforms.`,
     },
     {
         id:    "data-security",
@@ -169,7 +183,7 @@ export default function PrivacyPage() {
                                 { emoji: "🔒", text: "We never sell your data",    color: "border-emerald-200 bg-emerald-50 text-emerald-800"  },
                                 { emoji: "📵", text: "No spam, ever",              color: "border-blue-200   bg-blue-50   text-blue-800"        },
                                 { emoji: "💛", text: "Minimal data collection",    color: "border-amber-200  bg-amber-50  text-amber-800"       },
-                                { emoji: "💳", text: "Payments 100% secure",       color: "border-orange-200 bg-orange-50 text-orange-800"      },
+                                { emoji: "💳", text: "Secure Razorpay payments",   color: "border-orange-200 bg-orange-50 text-orange-800"      },
                             ].map(({ emoji, text, color }) => (
                                 <div key={text} className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[12px] font-bold ${color} shadow-sm`}>
                                     <span>{emoji}</span>{text}
